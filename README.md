@@ -1,39 +1,31 @@
 # LearnPilot
 
-Welcome to LearnPilot, my course project for **Topic 2: Personal Assistant-as-a-Service**. I designed it as a student-focused web application that turns academic PDFs into something immediately useful: structured notes, candidate deadlines, Google Calendar events, and optional Google Drive archives.
+LearnPilot is a course project implementation for **Topic 2: Personal Assistant-as-a-Service**. The system targets academic PDF workflows and provides a conversation-first study assistant built on a FastAPI backend and a Next.js frontend.
 
-If you are a student, evaluator, or teammate looking at this repository for the first time, this guide will help you understand what LearnPilot does, how it is organized, and how to run it locally from end to end.
+Current capabilities include:
 
-## What LearnPilot Does
+- text extraction from uploaded PDF documents
+- conversation-centric LLM interaction
+- Markdown-rendered assistant responses
+- session note creation and assistant-driven note revision
+- approval-based Google Calendar event creation
+- Pandoc-based session note export to `docx` and `pptx`
+- approval-based Google Drive upload for exported artifacts
+- optional Google Drive archiving for original PDF documents
 
-LearnPilot is built for documents such as:
+## Current Implementation Scope
 
-- course syllabi
-- assignment briefs
-- lecture notes
-- announcements
+The current repository state covers the following major product flows:
 
-After a user uploads a text-based PDF, LearnPilot can:
-
-- extract the text from the document
-- analyze it with an LLM
-- generate a concise summary
-- identify key study points and action items
-- extract candidate schedule events for review
-- create approved events in Google Calendar
-- archive the original PDF to Google Drive
-
-The backend follows a service-oriented structure, while the frontend presents the experience as a clean student productivity dashboard.
-
-## Current Project Status
-
-At this stage, the repository contains:
-
-- a working FastAPI backend MVP
-- a working Next.js frontend MVP
-- SQLite-based local persistence
-- Google OAuth, Calendar, and Drive integration hooks
-- a local development workflow suitable for demos and evaluation
+- authenticated web application with registration, login, profile update, and per-user credential storage
+- chat-first workspace with conversation history and persistent messages
+- conversation-level PDF attachment and document-aware assistant responses
+- session note generation and note revision through assistant tool calls
+- approval/resume tool runtime for external side effects
+- Google Calendar integration for approved date events
+- Pandoc export pipeline for session notes
+- Google Drive upload for exported artifacts and archived PDFs
+- SQLite-based local persistence for development and evaluation
 
 ## Tech Stack
 
@@ -42,43 +34,66 @@ At this stage, the repository contains:
 - Database: SQLite
 - PDF parsing: PyMuPDF
 - LLM provider: OpenAI
-- Cloud integrations: Google OAuth 2.0, Google Calendar API, Google Drive API
-- Python environment: `uv` with Python 3.11
-- Node environment: `nvm` with Node `v24.15.0`
+- External integrations: Google OAuth 2.0, Google Calendar API, Google Drive API
+- Python runtime: Python 3.11 with `uv`
+- Node runtime: Node `v24.15.0`
+- Document export: Pandoc
+- Container runtime: Docker Compose
 
 ## Repository Structure
 
 ```text
 learn_pilot/
-├── backend/                # FastAPI backend, database models, migrations, tests
-├── frontend/               # Next.js frontend MVP
-├── docs/                   # Supporting project documentation
-├── infra/                  # Infrastructure helpers
-├── SoftwareEngineeringPlan.md
-└── Project 2026.pdf
+├── backend/                     # FastAPI backend, migrations, tests, local data
+├── frontend/                    # Next.js frontend
+├── infra/
+│   └── docker/                  # Dockerfiles, compose file, startup scripts
+├── docs/                        # Supporting project documentation
+├── SoftwareEngineeringPlan.md   # Active engineering plan
+└── Project 2026.pdf             # Assignment specification
 ```
 
-## Before You Start
+## Prerequisites
 
-You will need:
+### Manual local startup
+
+Required tools:
 
 - Python 3.11
 - `uv`
 - Node.js `v24.15.0`
 - npm `11+`
-- an OpenAI account with API access
-- a Google Cloud project with Calendar and Drive APIs enabled
+- Pandoc
+- OpenAI API access
+- Google Cloud project with Calendar API and Drive API enabled
 
-## Backend Configuration
+### Docker startup
 
-First, create your backend environment file:
+Required tools:
+
+- Docker
+- Docker Compose
+- OpenAI API access
+- Google Cloud project with Calendar API and Drive API enabled
+
+Important:
+
+- `backend/.env` must be configured before startup.
+- `frontend/.env.local` must also be created before startup.
+- This requirement applies to both manual startup and Docker startup.
+
+## Environment Configuration
+
+## Backend Environment File
+
+Create the backend environment file:
 
 ```bash
 cd backend
 cp .env.example .env
 ```
 
-### Required Backend Variables
+Recommended baseline:
 
 ```env
 APP_NAME=LearnPilot
@@ -104,15 +119,13 @@ GOOGLE_OAUTH_STATE_SECRET=your-random-google-state-secret
 GOOGLE_DRIVE_ROOT_FOLDER_NAME=LearnPilot
 ```
 
-### Generate Local Security Secrets
-
-Three backend values must be generated locally:
+Three secrets must be generated locally:
 
 - `JWT_SECRET_KEY`
 - `APP_ENCRYPTION_KEY`
 - `GOOGLE_OAUTH_STATE_SECRET`
 
-You can generate them with:
+Suggested generation command:
 
 ```bash
 cd backend
@@ -126,65 +139,61 @@ print("GOOGLE_OAUTH_STATE_SECRET=", secrets.token_urlsafe(32), sep="")
 PY
 ```
 
-## Frontend Configuration
+## Frontend Environment File
 
-The frontend uses a same-origin proxy route, so the browser only talks to the Next.js app. The frontend then forwards API traffic to the FastAPI backend.
-
-Create a frontend environment file if you want a local override:
+Create the frontend environment file:
 
 ```bash
 cd frontend
 cp .env.example .env.local
 ```
 
-### Required Frontend Variable
+Required variable:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-This should point to the running FastAPI backend origin. The frontend proxy will automatically forward requests to the backend API namespace, so `http://localhost:8000` is the recommended value. `http://localhost:8000/api` is also accepted for compatibility.
+Notes:
+
+- For manual startup, `http://localhost:8000` is the recommended backend origin.
+- For Docker startup, the compose file overrides this value internally to `http://backend:8000`.
+- Keeping `frontend/.env.local` present remains recommended for a consistent local project setup.
 
 ## External Service Setup
 
-### OpenAI
+## OpenAI
 
-LearnPilot uses OpenAI as the default LLM provider.
+OpenAI is used as the default LLM provider.
 
-What you need to do:
+Important implementation detail:
 
-1. Sign in to the OpenAI Platform.
-2. Create a secret API key.
-3. Keep that key safe.
-4. Start LearnPilot and save the key through the app settings or backend API.
+- The OpenAI API key is not stored in `backend/.env`.
+- The key is stored per user through the application after sign-in.
+- Configuration is completed through the Settings page or the backend credential endpoint.
 
-Important note:
-
-- The OpenAI API key is **not** stored in `backend/.env`.
-- It is stored per user through the backend endpoint `POST /api/credentials/llm`.
-
-Backend defaults for OpenAI:
+Backend defaults:
 
 ```env
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
 ```
 
-Useful references:
+References:
 
 - OpenAI API key help: https://help.openai.com/en/articles/4936850-where-do-i-find-my-secret-api-key
 - OpenAI API authentication: https://platform.openai.com/docs/api-reference/introduction/installation
 - `gpt-4.1-mini` model reference: https://platform.openai.com/docs/models/gpt-4.1-mini
 
-### Google OAuth, Calendar, and Drive
+## Google OAuth, Calendar, and Drive
 
-LearnPilot uses Google for:
+Google integration is used for:
 
-- OAuth sign-in authorization flow
+- OAuth authorization
 - Google Calendar event creation
-- Google Drive PDF archiving
+- Google Drive document archive and export artifact upload
 
-The backend currently requests these scopes:
+Currently requested scopes:
 
 - `https://www.googleapis.com/auth/calendar.events`
 - `https://www.googleapis.com/auth/drive.file`
@@ -194,36 +203,94 @@ The backend currently requests these scopes:
 Setup steps:
 
 1. Open Google Cloud Console.
-2. Create a new project, or select an existing one.
+2. Create or select a project.
 3. Enable:
    - Google Calendar API
    - Google Drive API
 4. Configure the OAuth consent screen.
-   - For local development, `External` is usually the easiest choice.
-   - Add your Google account to the test users list if the app is still in testing mode.
-   - In Google Auth Platform > Audience, either publish the app or explicitly add your Google account as a test user before trying to connect LearnPilot.
-5. Create OAuth credentials.
-   - Choose **Web application**.
-   - Add this exact redirect URI:
-     `http://localhost:8000/api/credentials/google/callback`
-6. Copy the generated:
-   - Client ID
-   - Client Secret
-7. Paste them into `backend/.env`.
+5. Create OAuth credentials for a web application.
+6. Add the following redirect URI exactly:
+   - `http://localhost:8000/api/credentials/google/callback`
+7. Copy the generated client ID and client secret into `backend/.env`.
 
-Important note:
+Important:
 
-- `GOOGLE_OAUTH_REDIRECT_URI` in your `.env` must exactly match the redirect URI configured in Google Cloud Console.
-- If the app is not published yet, only users listed in Google Auth Platform > Audience > Test users will be able to complete the OAuth flow.
+- `GOOGLE_OAUTH_REDIRECT_URI` must exactly match the Google Cloud configuration.
+- If the OAuth app is still in testing mode, the Google account used for testing must be listed in the test users configuration.
 
-Useful references:
+References:
 
 - OAuth consent setup: https://developers.google.com/workspace/guides/configure-oauth-consent
 - Create Google credentials: https://developers.google.com/workspace/guides/create-credentials
 - Web server OAuth flow: https://developers.google.com/identity/protocols/oauth2/web-server
 - Drive auth scopes: https://developers.google.com/workspace/drive/api/guides/api-specific-auth
 
-## How to Run the Backend
+## Docker Startup
+
+Container assets are provided under `infra/docker`.
+
+Included files:
+
+- `infra/docker/docker-compose.yml`
+- `infra/docker/backend.Dockerfile`
+- `infra/docker/frontend.Dockerfile`
+- `infra/docker/backend-entrypoint.sh`
+- `infra/docker/build.sh`
+- `infra/docker/up.sh`
+- `infra/docker/down.sh`
+- `infra/docker/logs.sh`
+
+Behavior:
+
+- backend image includes Pandoc
+- backend container automatically runs `alembic upgrade head` before service startup
+- frontend container runs the production Next.js server
+- backend data is persisted through the bind-mounted `backend/data` directory
+
+### Docker startup steps
+
+1. Configure `backend/.env`.
+2. Configure `frontend/.env.local`.
+3. Start services:
+
+```bash
+bash infra/docker/up.sh
+```
+
+4. View logs if needed:
+
+```bash
+bash infra/docker/logs.sh
+```
+
+5. Stop services:
+
+```bash
+bash infra/docker/down.sh
+```
+
+Optional image build command:
+
+```bash
+bash infra/docker/build.sh
+```
+
+Equivalent raw Docker Compose command:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml up --build -d
+```
+
+Service endpoints after successful startup:
+
+- frontend: `http://localhost:3000`
+- backend: `http://localhost:8000`
+- backend health check: `http://localhost:8000/health`
+- backend Swagger UI: `http://localhost:8000/docs`
+
+## Manual Local Startup
+
+## Backend startup
 
 ### 1. Install dependencies
 
@@ -232,16 +299,11 @@ cd backend
 uv sync
 ```
 
-### 2. Run database migrations
+### 2. Install Pandoc
 
-```bash
-cd backend
-uv run alembic upgrade head
-```
+Pandoc is required for note export to `docx` and `pptx`.
 
-### 2.5 Install Pandoc for note export
-
-LearnPilot now exports session notes to `docx` and `pptx` through `pandoc`. Install it in WSL/Linux before testing export:
+WSL/Linux installation:
 
 ```bash
 sudo apt-get update
@@ -249,22 +311,23 @@ sudo apt-get install -y pandoc
 pandoc --version
 ```
 
-If `pandoc` is installed in a non-default location, set `PANDOC_BINARY` in `backend/.env`. Exported files are written to `EXPORT_DIR`, which must be writable by the backend process.
+If Pandoc is installed outside the default `PATH`, set `PANDOC_BINARY` in `backend/.env`.
 
-### 3. Start the backend server
+### 3. Run database migrations
+
+```bash
+cd backend
+uv run alembic upgrade head
+```
+
+### 4. Start the backend service
 
 ```bash
 cd backend
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Once running, you can open:
-
-- Health check: `http://localhost:8000/health`
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-## How to Run the Frontend
+## Frontend startup
 
 ### 1. Install dependencies
 
@@ -273,56 +336,67 @@ cd frontend
 npm install
 ```
 
-### 2. Start the frontend
+### 2. Start the frontend service
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-The frontend will be available at:
+Service endpoints:
 
-- `http://localhost:3000`
+- frontend: `http://localhost:3000`
+- backend: `http://localhost:8000`
 
-## Recommended Local Development Flow
+## Suggested Validation Flow
 
-If you want the full experience, I recommend this order:
+Recommended end-to-end validation sequence:
 
-1. Configure `backend/.env`
-2. Configure `frontend/.env.local`
-3. Start the backend
-4. Start the frontend
-5. Open `http://localhost:3000`
-6. Create an account
-7. Save your OpenAI API key in **Settings**
-8. Connect your Google account in **Settings**
-9. Upload a study PDF from the dashboard
-10. Run analysis and review the generated note and candidate events
+1. Create an account.
+2. Sign in.
+3. Configure the OpenAI API key in Settings.
+4. Connect Google credentials in Settings.
+5. Create a new chat.
+6. Upload a PDF to the conversation.
+7. Request a summary or a study note.
+8. Request calendar event creation and approve the tool call.
+9. Request note export to `docx` or `pptx` and approve the tool call.
+10. Download the generated artifact.
+11. Request Drive upload for the exported artifact and approve the tool call.
 
 ## Frontend Overview
 
-The frontend MVP currently includes:
+The current frontend includes:
 
-- a landing page introducing LearnPilot
+- public landing page
 - login and registration pages
-- an authenticated dashboard
-- document upload and recent-document browsing
-- document detail pages with:
-  - extracted text preview
-  - analysis controls
-  - generated note editing
-  - candidate event review
-  - Google Drive archive status
-- a settings page for:
-  - profile updates
-  - OpenAI key storage
-  - Google connection status
+- chat-first authenticated workspace
+- conversation history in the sidebar
+- session note panel
+- export artifact panel
+- dashboard overview
+- settings page for profile and credential configuration
 
-The frontend uses localStorage for the access token and validates it on app startup by calling `/api/auth/me`.
+Assistant responses and notes are rendered as Markdown.
+
+## Backend Overview
+
+The current backend includes:
+
+- authentication and JWT session support
+- encrypted per-user credential storage
+- PDF upload and text extraction
+- conversation, message, and run persistence
+- session note persistence and revision tracking
+- approval-based tool call runtime
+- Google Calendar event creation
+- Google Drive file upload flows
+- Pandoc export artifact generation
+- Alembic migration support
 
 ## Testing and Verification
 
-### Backend checks
+## Backend checks
 
 ```bash
 cd backend
@@ -330,7 +404,7 @@ uv run ruff check app tests
 uv run pytest
 ```
 
-### Frontend checks
+## Frontend checks
 
 ```bash
 cd frontend
@@ -339,32 +413,10 @@ npm run lint
 npm run build
 ```
 
-## Typical User Journey
+## Notes
 
-This is the path I expect most users to follow:
-
-1. Create an account
-2. Sign in
-3. Configure an OpenAI API key
-4. Connect Google Calendar and Drive
-5. Upload a text-based academic PDF
-6. Run analysis
-7. Review notes and extracted candidate events
-8. Approve selected events for Google Calendar
-9. Archive the original PDF to Google Drive if desired
-
-## Notes for Evaluators and Teammates
-
-- The current backend uses SQLite for local development and demonstration.
-- The current analysis flow is synchronous, which makes the system easier to test and demo.
-- The Google OAuth callback remains backend-owned; the frontend handles Google connection by opening the authorization flow and polling credential status afterward.
-- The repository contains working MVP code, but it is still a course project prototype rather than a production deployment.
-
-## Security Reminder
-
-- Do not commit `backend/.env` or `frontend/.env.local`.
-- If any secret or API key has been exposed in screenshots, chat messages, or a public repository, rotate it immediately.
-
-## Project Intention
-
-I built LearnPilot to show that a personal assistant does not need to be a vague “AI agent” concept. It can be implemented as a practical, modular service platform with clear APIs, clear workflows, and a focused user problem: helping students turn academic documents into action.
+- SQLite is used for local development and evaluation.
+- Exported artifacts are stored under `backend/data/exports`.
+- Uploaded PDFs are stored under `backend/data/uploads`.
+- Docker startup installs Pandoc inside the backend image automatically.
+- Manual startup requires Pandoc to be installed on the host system.
