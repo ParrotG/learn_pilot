@@ -11,6 +11,9 @@ function toneForRole(role: Message["role"]) {
   if (role === "system") {
     return "bg-[var(--surface-muted)]";
   }
+  if (role === "tool") {
+    return "bg-[#fff7e8]";
+  }
   return "bg-[var(--accent-soft)]";
 }
 

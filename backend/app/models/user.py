@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from app.models.document import Document
     from app.models.message import Message
     from app.models.note import Note
+    from app.models.session_note import SessionNote
+    from app.models.tool_approval_decision import ToolApprovalDecision
     from app.models.user_credential import UserCredential
 
 
@@ -46,4 +48,12 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     messages: Mapped[list["Message"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     assistant_runs: Mapped[list["AssistantRun"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
+    )
+    session_notes: Mapped[list["SessionNote"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    tool_approval_decisions: Mapped[list["ToolApprovalDecision"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
     )

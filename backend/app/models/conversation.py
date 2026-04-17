@@ -10,8 +10,11 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.assistant_run import AssistantRun
+    from app.models.candidate_event import CandidateEvent
     from app.models.conversation_document import ConversationDocument
     from app.models.message import Message
+    from app.models.session_note import SessionNote
+    from app.models.tool_call import ToolCall
     from app.models.user import User
 
 
@@ -37,4 +40,17 @@ class Conversation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="conversation",
         cascade="all, delete-orphan",
         order_by="AssistantRun.created_at",
+    )
+    session_note: Mapped["SessionNote | None"] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    tool_calls: Mapped[list["ToolCall"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
+    candidate_events: Mapped[list["CandidateEvent"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
     )

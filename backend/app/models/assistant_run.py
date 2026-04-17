@@ -10,6 +10,8 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 if TYPE_CHECKING:
     from app.models.conversation import Conversation
     from app.models.message import Message
+    from app.models.session_note_revision import SessionNoteRevision
+    from app.models.tool_call import ToolCall
     from app.models.user import User
 
 
@@ -28,9 +30,19 @@ class AssistantRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="queued")
+    pending_tool_call_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     trace: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="assistant_runs")
     message: Mapped["Message"] = relationship(back_populates="assistant_runs")
     user: Mapped["User"] = relationship(back_populates="assistant_runs")
+    tool_calls: Mapped[list["ToolCall"]] = relationship(
+        back_populates="assistant_run",
+        cascade="all, delete-orphan",
+        order_by="ToolCall.created_at",
+    )
+    note_revisions: Mapped[list["SessionNoteRevision"]] = relationship(
+        back_populates="assistant_run",
+        cascade="all, delete-orphan",
+    )

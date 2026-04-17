@@ -8,6 +8,10 @@ from app.models.document import Document
 from app.models.message import Message
 from app.models.message_attachment import MessageAttachment
 from app.models.note import Note
+from app.models.session_note import SessionNote
+from app.models.session_note_revision import SessionNoteRevision
+from app.models.tool_approval_decision import ToolApprovalDecision
+from app.models.tool_call import ToolCall
 from app.models.user import User
 from app.models.user_credential import UserCredential
 
@@ -22,6 +26,10 @@ __all__ = [
     "Message",
     "MessageAttachment",
     "Note",
+    "SessionNote",
+    "SessionNoteRevision",
+    "ToolApprovalDecision",
+    "ToolCall",
     "User",
     "UserCredential",
 ]

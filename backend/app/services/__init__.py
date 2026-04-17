@@ -11,6 +11,8 @@ from app.services.intent_service import IntentService
 from app.services.message_service import MessageService
 from app.services.note_service import NoteService
 from app.services.orchestrator_service import OrchestratorService
+from app.services.session_note_service import SessionNoteService
+from app.services.tool_gateway_service import ToolGatewayService
 from app.services.workspace_document_service import WorkspaceDocumentService
 
 __all__ = [
@@ -26,7 +28,9 @@ __all__ = [
     "NoteService",
     "OpenAIStructuredClient",
     "OrchestratorService",
+    "SessionNoteService",
     "ServiceBundle",
+    "ToolGatewayService",
     "WorkspaceDocumentService",
     "build_services",
 ]

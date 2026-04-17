@@ -56,5 +56,15 @@ class MessageStatus(StrEnum):
 class AssistantRunExecutionStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ToolCallStatus(StrEnum):
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"

@@ -14,6 +14,8 @@ from app.services.intent_service import IntentService
 from app.services.message_service import MessageService
 from app.services.note_service import NoteService
 from app.services.orchestrator_service import OrchestratorService
+from app.services.session_note_service import SessionNoteService
+from app.services.tool_gateway_service import ToolGatewayService
 from app.services.workspace_document_service import WorkspaceDocumentService
 
 
@@ -26,6 +28,8 @@ class ServiceBundle:
     workspace_document_service: WorkspaceDocumentService
     assistant_runtime_service: AssistantRuntimeService
     note_service: NoteService
+    session_note_service: SessionNoteService
+    tool_gateway_service: ToolGatewayService
     intent_service: IntentService
     calendar_service: CalendarService
     drive_service: DriveService
@@ -38,9 +42,16 @@ def build_services(settings: Settings) -> ServiceBundle:
     conversation_service = ConversationService()
     message_service = MessageService(conversation_service)
     llm_client = OpenAIStructuredClient(settings)
+    session_note_service = SessionNoteService()
     workspace_document_service = WorkspaceDocumentService(
         document_service=document_service,
         conversation_service=conversation_service,
+        message_service=message_service,
+    )
+    calendar_service = CalendarService(llm_client, credential_service)
+    tool_gateway_service = ToolGatewayService(
+        calendar_service=calendar_service,
+        session_note_service=session_note_service,
         message_service=message_service,
     )
     assistant_runtime_service = AssistantRuntimeService(
@@ -48,10 +59,11 @@ def build_services(settings: Settings) -> ServiceBundle:
         credential_service=credential_service,
         conversation_service=conversation_service,
         message_service=message_service,
+        session_note_service=session_note_service,
+        tool_gateway_service=tool_gateway_service,
     )
     note_service = NoteService(llm_client)
     intent_service = IntentService(llm_client)
-    calendar_service = CalendarService(llm_client, credential_service)
     drive_service = DriveService(credential_service, document_service)
     orchestrator_service = OrchestratorService(
         credential_service=credential_service,
@@ -69,6 +81,8 @@ def build_services(settings: Settings) -> ServiceBundle:
         workspace_document_service=workspace_document_service,
         assistant_runtime_service=assistant_runtime_service,
         note_service=note_service,
+        session_note_service=session_note_service,
+        tool_gateway_service=tool_gateway_service,
         intent_service=intent_service,
         calendar_service=calendar_service,
         drive_service=drive_service,

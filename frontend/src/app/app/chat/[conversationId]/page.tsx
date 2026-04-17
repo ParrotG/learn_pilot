@@ -5,14 +5,24 @@ import { startTransition, useCallback, useEffect, useState } from "react";
 
 import { ChatComposer } from "@/components/chat/chat-composer";
 import { MessageTimeline } from "@/components/chat/message-timeline";
+import { SessionNotePanel } from "@/components/chat/session-note-panel";
+import { ToolApprovalModal } from "@/components/chat/tool-approval-modal";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SectionHeading } from "@/components/ui/section-heading";
-import { conversationsApi, messagesApi, runsApi, workspaceApi } from "@/lib/api";
-import type { ApiError, AssistantRun, ConversationDetail, ConversationDocument, Message } from "@/lib/types";
+import { conversationsApi, messagesApi, notesApi, runsApi, toolCallsApi, workspaceApi } from "@/lib/api";
+import type {
+  ApiError,
+  AssistantRun,
+  ConversationDetail,
+  ConversationDocument,
+  Message,
+  SessionNote,
+  ToolCall,
+} from "@/lib/types";
 
 function isTerminal(status: AssistantRun["status"]) {
   return status === "completed" || status === "failed";
@@ -26,6 +36,8 @@ export default function ConversationPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [documents, setDocuments] = useState<ConversationDocument[]>([]);
   const [activeRun, setActiveRun] = useState<AssistantRun | null>(null);
+  const [sessionNote, setSessionNote] = useState<SessionNote | null>(null);
+  const [pendingToolCall, setPendingToolCall] = useState<ToolCall | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDocs, setShowDocs] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
@@ -34,16 +46,19 @@ export default function ConversationPage() {
     if (!token) {
       return;
     }
-    const [detail, messageList, documentList] = await Promise.all([
+    const [detail, messageList, documentList, note] = await Promise.all([
       conversationsApi.detail(token, conversationId),
       messagesApi.list(token, conversationId),
       workspaceApi.listDocuments(token, conversationId),
+      notesApi.getForConversation(token, conversationId),
     ]);
     startTransition(() => {
       setConversation(detail);
       setMessages(messageList);
       setDocuments(documentList);
       setActiveRun(detail.latest_run);
+      setSessionNote(note);
+      setPendingToolCall(detail.pending_tool_call);
       setError(null);
       setLoading(false);
     });
@@ -72,7 +87,13 @@ export default function ConversationPage() {
         startTransition(() => {
           setActiveRun(refreshedRun);
         });
-        if (isTerminal(refreshedRun.status)) {
+        if (refreshedRun.pending_tool_call_id) {
+          const toolCall = await toolCallsApi.get(token, refreshedRun.pending_tool_call_id);
+          startTransition(() => {
+            setPendingToolCall(toolCall);
+          });
+        }
+        if (isTerminal(refreshedRun.status) || refreshedRun.status === "waiting_for_approval") {
           window.clearInterval(intervalId);
           await loadConversationData();
         }
@@ -106,12 +127,44 @@ export default function ConversationPage() {
     await loadConversationData();
   }
 
+  async function handleApproveToolCall() {
+    if (!token || !pendingToolCall) {
+      return;
+    }
+    const approval = await toolCallsApi.approve(token, pendingToolCall.id, {});
+    const refreshedRun = await runsApi.get(token, approval.assistant_run_id);
+    startTransition(() => {
+      setPendingToolCall(null);
+      setActiveRun(refreshedRun);
+    });
+  }
+
+  async function handleRejectToolCall() {
+    if (!token || !pendingToolCall) {
+      return;
+    }
+    const rejection = await toolCallsApi.reject(token, pendingToolCall.id, {});
+    const refreshedRun = await runsApi.get(token, rejection.assistant_run_id);
+    startTransition(() => {
+      setPendingToolCall(null);
+      setActiveRun(refreshedRun);
+    });
+  }
+
   if (loading) {
     return <LoadingState label="Loading conversation..." />;
   }
 
   return (
     <div className="space-y-5">
+      {pendingToolCall && activeRun?.status === "waiting_for_approval" ? (
+        <ToolApprovalModal
+          toolCall={pendingToolCall}
+          onApprove={handleApproveToolCall}
+          onReject={handleRejectToolCall}
+        />
+      ) : null}
+
       <SectionHeading
         eyebrow="Chat"
         title={conversation?.title || "Conversation"}
@@ -124,7 +177,11 @@ export default function ConversationPage() {
 
       {error ? <Alert tone="danger">{error.message}</Alert> : null}
       {activeRun && !isTerminal(activeRun.status) ? (
-        <Alert tone="info">LearnPilot is working on your latest request. Current run status: {activeRun.status}.</Alert>
+        <Alert tone="info">
+          {activeRun.status === "waiting_for_approval"
+            ? "LearnPilot is waiting for your approval before it writes external calendar events."
+            : `LearnPilot is working on your latest request. Current run status: ${activeRun.status}.`}
+        </Alert>
       ) : null}
       {showDocs ? (
         <div className="flex justify-end">
@@ -148,12 +205,17 @@ export default function ConversationPage() {
         </div>
       ) : null}
 
-      <div className="mx-auto flex min-h-[calc(100vh-12rem)] max-w-4xl flex-col gap-4">
-        <div className="flex-1">
-          <MessageTimeline messages={messages} />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="mx-auto flex min-h-[calc(100vh-12rem)] w-full max-w-4xl flex-col gap-4">
+          <div className="flex-1">
+            <MessageTimeline messages={messages} />
+          </div>
+          <div className="sticky bottom-0 z-10 pb-2 pt-4">
+            <ChatComposer onSend={handleSendMessage} onUpload={handleUploadDocument} />
+          </div>
         </div>
-        <div className="sticky bottom-0 z-10 pb-2 pt-4">
-          <ChatComposer onSend={handleSendMessage} onUpload={handleUploadDocument} />
+        <div className="xl:sticky xl:top-6 xl:self-start">
+          <SessionNotePanel note={sessionNote} />
         </div>
       </div>
     </div>

@@ -58,7 +58,8 @@ export type AssistantRun = {
   conversation_id: string;
   message_id: string;
   user_id: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "waiting_for_approval" | "completed" | "failed";
+  pending_tool_call_id: string | null;
   trace: Record<string, unknown>;
   error_message: string | null;
   created_at: string;
@@ -77,6 +78,8 @@ export type Conversation = {
 
 export type ConversationDetail = Conversation & {
   latest_run: AssistantRun | null;
+  latest_note: SessionNoteSummary | null;
+  pending_tool_call: ToolCall | null;
 };
 
 export type MessageAttachmentReference = {
@@ -118,16 +121,49 @@ export type Note = {
   updated_at: string;
 };
 
+export type SessionNote = {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  title: string;
+  current_markdown: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SessionNoteSummary = {
+  id: string;
+  conversation_id: string;
+  title: string;
+  updated_at: string;
+};
+
+export type SessionNoteRevision = {
+  id: string;
+  note_id: string;
+  assistant_run_id: string;
+  patch_format: string;
+  patch_text: string;
+  result_markdown: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CandidateEvent = {
   id: string;
   user_id: string;
-  document_id: string;
+  document_id: string | null;
+  conversation_id: string | null;
+  tool_call_id: string | null;
+  source_message_id: string | null;
+  source_document_id: string | null;
   title: string;
   start_time: string;
   end_time: string | null;
   description: string | null;
   location: string | null;
   source_excerpt: string | null;
+  normalized_year_defaulted: boolean;
   status: string;
   error_message: string | null;
   created_at: string;
@@ -153,6 +189,33 @@ export type CalendarRecord = {
   user_id: string;
   candidate_event_id: string;
   google_event_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ToolApprovalDecision = {
+  id: string;
+  tool_call_id: string;
+  decided_by_user_id: string;
+  decision: string;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ToolCall = {
+  id: string;
+  assistant_run_id: string;
+  conversation_id: string;
+  tool_name: "patch_note" | "create_calendar_event";
+  arguments_json: Record<string, unknown>;
+  status: "pending_approval" | "approved" | "rejected" | "running" | "completed" | "failed";
+  approval_required: boolean;
+  approval_reason: string | null;
+  result_json: Record<string, unknown> | null;
+  error_message: string | null;
+  candidate_events: CandidateEvent[];
+  approval_decisions: ToolApprovalDecision[];
   created_at: string;
   updated_at: string;
 };

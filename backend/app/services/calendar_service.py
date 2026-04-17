@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import delete, select
@@ -25,6 +27,37 @@ Return JSON with a single field:
 Use ISO 8601 datetimes. If no timezone is given in the source, assume local time and still return a valid datetime string.
 Return an empty array when no actionable events are present.
 """.strip()
+
+_DATE_FORMATS_WITH_YEAR = (
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y/%m/%d %H:%M",
+    "%Y/%m/%d %H:%M:%S",
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%d %b %Y %H:%M",
+    "%d %B %Y %H:%M",
+    "%b %d %Y %H:%M",
+    "%B %d %Y %H:%M",
+    "%d %b %Y",
+    "%d %B %Y",
+    "%b %d %Y",
+    "%B %d %Y",
+)
+_DATE_FORMATS_WITHOUT_YEAR = (
+    "%m-%d %H:%M",
+    "%m/%d %H:%M",
+    "%m-%d",
+    "%m/%d",
+    "%d %b %H:%M",
+    "%d %B %H:%M",
+    "%b %d %H:%M",
+    "%B %d %H:%M",
+    "%d %b",
+    "%d %B",
+    "%b %d",
+    "%B %d",
+)
 
 
 class CandidateEventList(BaseModel):
@@ -65,24 +98,75 @@ class CalendarService:
 
         events: list[CandidateEvent] = []
         for item in parsed.events:
-            signature = self._signature(item.title, item.start_time.isoformat(), item.end_time.isoformat() if item.end_time else None)
+            signature = self._signature(
+                item.title,
+                item.start_time.isoformat(),
+                item.end_time.isoformat() if item.end_time else None,
+            )
             if signature in synced_signatures:
                 continue
             event = CandidateEvent(
                 user_id=user_id,
                 document_id=document_id,
+                source_document_id=document_id,
                 title=item.title,
                 start_time=item.start_time,
                 end_time=item.end_time,
                 description=item.description,
                 location=item.location,
                 source_excerpt=item.source_excerpt,
+                normalized_year_defaulted=False,
                 status=CandidateEventStatus.PENDING.value,
             )
             session.add(event)
             events.append(event)
         await session.flush()
         return events, raw_json
+
+    async def create_pending_events_for_tool_call(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        conversation_id: str,
+        tool_call_id: str,
+        source_message_id: str,
+        events_payload: list[dict[str, object]],
+    ) -> list[CandidateEvent]:
+        created: list[CandidateEvent] = []
+        for raw_event in events_payload:
+            normalized_start, start_year_defaulted = self.normalize_datetime(
+                str(raw_event["start_text"]),
+                default_year=datetime.now(UTC).year,
+            )
+            normalized_end = None
+            end_year_defaulted = False
+            if raw_event.get("end_text"):
+                normalized_end, end_year_defaulted = self.normalize_datetime(
+                    str(raw_event["end_text"]),
+                    default_year=normalized_start.year,
+                )
+            source_document_id = raw_event.get("source_document_id")
+            event = CandidateEvent(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                tool_call_id=tool_call_id,
+                source_message_id=source_message_id,
+                source_document_id=str(source_document_id) if source_document_id else None,
+                document_id=str(source_document_id) if source_document_id else None,
+                title=str(raw_event["title"]).strip(),
+                start_time=normalized_start,
+                end_time=normalized_end,
+                description=self._optional_str(raw_event.get("description")),
+                location=self._optional_str(raw_event.get("location")),
+                source_excerpt=self._optional_str(raw_event.get("source_excerpt")),
+                normalized_year_defaulted=start_year_defaulted or end_year_defaulted,
+                status=CandidateEventStatus.PENDING.value,
+            )
+            session.add(event)
+            created.append(event)
+        await session.flush()
+        return created
 
     async def create_calendar_events(
         self,
@@ -98,7 +182,8 @@ class CalendarService:
 
         result = await session.execute(
             select(CandidateEvent).where(
-                CandidateEvent.user_id == user_id, CandidateEvent.id.in_(ids)
+                CandidateEvent.user_id == user_id,
+                CandidateEvent.id.in_(ids),
             )
         )
         events = list(result.scalars().all())
@@ -106,7 +191,9 @@ class CalendarService:
             raise NotFoundError("One or more candidate events were not found.")
 
         access_token, refresh_token, expiry = await self.credential_service.get_google_tokens(
-            session, user_id=user_id, settings=settings
+            session,
+            user_id=user_id,
+            settings=settings,
         )
         credentials = build_user_credentials(
             settings=settings,
@@ -143,10 +230,31 @@ class CalendarService:
             session.add(record)
             records.append(record)
 
-        await session.commit()
-        for record in records:
-            await session.refresh(record)
+        await session.flush()
         return records
+
+    async def reject_calendar_events(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        candidate_event_ids: Iterable[str],
+    ) -> list[CandidateEvent]:
+        ids = list(candidate_event_ids)
+        if not ids:
+            return []
+        result = await session.execute(
+            select(CandidateEvent).where(
+                CandidateEvent.user_id == user_id,
+                CandidateEvent.id.in_(ids),
+            )
+        )
+        events = list(result.scalars().all())
+        for event in events:
+            event.status = CandidateEventStatus.REJECTED.value
+            event.error_message = None
+        await session.flush()
+        return events
 
     async def _get_synced_signatures(self, session: AsyncSession, *, document_id: str) -> set[str]:
         result = await session.execute(
@@ -160,6 +268,50 @@ class CalendarService:
             for event in result.scalars().all()
         }
 
+    def normalize_datetime(self, value: str, *, default_year: int) -> tuple[datetime, bool]:
+        text = value.strip()
+        if not text:
+            raise BadRequestError("Event date text cannot be empty.")
+
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed, False
+        except ValueError:
+            pass
+
+        for fmt in _DATE_FORMATS_WITH_YEAR:
+            try:
+                parsed = datetime.strptime(text, fmt).replace(tzinfo=UTC)
+                return parsed, False
+            except ValueError:
+                continue
+
+        for fmt in _DATE_FORMATS_WITHOUT_YEAR:
+            try:
+                parsed = datetime.strptime(text, fmt).replace(year=default_year, tzinfo=UTC)
+                return parsed, True
+            except ValueError:
+                continue
+
+        month_day_match = re.fullmatch(r"(?P<month>\d{1,2})-(?P<day>\d{1,2})", text)
+        if month_day_match:
+            parsed = datetime(
+                default_year,
+                int(month_day_match.group("month")),
+                int(month_day_match.group("day")),
+                tzinfo=UTC,
+            )
+            return parsed, True
+
+        raise BadRequestError(f"Could not parse event date text: {value}")
+
     def _signature(self, title: str, start_time: str, end_time: str | None) -> str:
         return f"{title}::{start_time}::{end_time or ''}"
 
+    def _optional_str(self, value: object | None) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None

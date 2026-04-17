@@ -8,8 +8,11 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.calendar_record import CalendarRecord
 from app.models.candidate_event import CandidateEvent
+from app.models.conversation import Conversation
 from app.models.enums import AssistantAction, CandidateEventStatus
+from app.models.session_note import SessionNote
 from app.models.user_credential import UserCredential
 from app.integrations.openai_client import OpenAIStructuredClient
 from app.schemas.domain import GeneratedNote, IntentResult
@@ -261,7 +264,15 @@ async def test_conversation_message_and_run_flow(
         assert any(message["role"] == "user" for message in conversation_messages)
         return "## Study Summary\n\n- This is the generated assistant reply."
 
+    async def fake_generate_json(self, *, api_key: str, system_prompt: str, user_prompt: str) -> str:
+        assert api_key == "sk-test-chat-123"
+        return (
+            '{"decision_type":"assistant_reply","assistant_reply":"## Study Summary\\n\\n- This is the generated '
+            'assistant reply.","tool_request":null}'
+        )
+
     monkeypatch.setattr(OpenAIStructuredClient, "validate_api_key", fake_validate_api_key)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_json", fake_generate_json)
     monkeypatch.setattr(OpenAIStructuredClient, "generate_markdown_reply", fake_generate_markdown_reply)
 
     llm_response = await client.post(
@@ -319,3 +330,293 @@ async def test_conversation_message_and_run_flow(
     documents = documents_response.json()
     assert len(documents) == 1
     assert documents[0]["document"]["id"] == document_id
+
+
+@pytest.mark.asyncio
+async def test_chat_patch_note_tool_creates_session_note(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_validate_api_key(self, api_key: str) -> None:
+        return None
+
+    async def fake_generate_json(self, *, api_key: str, system_prompt: str, user_prompt: str) -> str:
+        return (
+            '{"decision_type":"tool_request","assistant_reply":"","tool_request":{"tool_name":"patch_note",'
+            '"arguments":{"title":"Exam Prep Note","full_markdown":"# Exam Prep\\n\\n- Review the final chapter.",'
+            '"change_summary":"Created a concise exam prep note."}}}'
+        )
+
+    async def fake_generate_markdown_reply(
+        self,
+        *,
+        api_key: str,
+        system_prompt: str,
+        conversation_messages: list[dict[str, str]],
+        additional_context: dict[str, object] | None = None,
+    ) -> str:
+        assert additional_context is not None
+        assert additional_context["tool_result"]["tool_name"] == "patch_note"
+        return "The session note is ready in the side panel."
+
+    monkeypatch.setattr(OpenAIStructuredClient, "validate_api_key", fake_validate_api_key)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_json", fake_generate_json)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_markdown_reply", fake_generate_markdown_reply)
+
+    llm_response = await client.post(
+        "/api/credentials/llm",
+        headers=auth_headers,
+        json={"provider": "openai", "api_key": "sk-test-note-123"},
+    )
+    assert llm_response.status_code == 200
+
+    conversation_response = await client.post("/api/conversations", headers=auth_headers, json={})
+    conversation_id = conversation_response.json()["id"]
+
+    message_response = await client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+        json={"content": "Please turn this conversation into an exam prep note."},
+    )
+    assert message_response.status_code == 200
+    run_id = message_response.json()["assistant_run"]["id"]
+
+    for _ in range(5):
+        run_response = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+        if run_response.json()["status"] in {"completed", "failed"}:
+            break
+        await asyncio.sleep(0.05)
+    assert run_response.json()["status"] == "completed"
+
+    note_response = await client.get(
+        f"/api/conversations/{conversation_id}/note",
+        headers=auth_headers,
+    )
+    assert note_response.status_code == 200
+    note = note_response.json()
+    assert note["title"] == "Exam Prep Note"
+    assert "# Exam Prep" in note["current_markdown"]
+
+    revisions_response = await client.get(f"/api/notes/{note['id']}/revisions", headers=auth_headers)
+    assert revisions_response.status_code == 200
+    revisions = revisions_response.json()
+    assert len(revisions) == 1
+    assert "before.md" in revisions[0]["patch_text"]
+
+    messages_response = await client.get(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+    )
+    messages = messages_response.json()
+    assert any(message["role"] == "tool" for message in messages)
+    assert any(message["role"] == "assistant" for message in messages)
+
+    note_result = await db_session.execute(select(SessionNote))
+    assert note_result.scalar_one().conversation_id == conversation_id
+
+
+@pytest.mark.asyncio
+async def test_chat_calendar_tool_waits_for_approval_and_resumes(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_validate_api_key(self, api_key: str) -> None:
+        return None
+
+    async def fake_generate_json(self, *, api_key: str, system_prompt: str, user_prompt: str) -> str:
+        return (
+            '{"decision_type":"tool_request","assistant_reply":"","tool_request":{"tool_name":"create_calendar_event",'
+            '"arguments":{"events":[{"title":"Project Deadline","start_text":"2026-06-01 18:00",'
+            '"description":"Final submission deadline.","source_excerpt":"Deadline is 2026-06-01 18:00."}]}}}'
+        )
+
+    async def fake_generate_markdown_reply(
+        self,
+        *,
+        api_key: str,
+        system_prompt: str,
+        conversation_messages: list[dict[str, str]],
+        additional_context: dict[str, object] | None = None,
+    ) -> str:
+        assert additional_context is not None
+        return "The requested calendar events have been processed."
+
+    async def fake_create_calendar_events(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        candidate_event_ids: list[str],
+        settings,
+    ) -> list[CalendarRecord]:
+        result = await session.execute(select(CandidateEvent).where(CandidateEvent.id.in_(candidate_event_ids)))
+        events = list(result.scalars().all())
+        records: list[CalendarRecord] = []
+        for event in events:
+            event.status = CandidateEventStatus.SYNCED.value
+            record = CalendarRecord(
+                user_id=user_id,
+                candidate_event_id=event.id,
+                google_event_id=f"google-{event.id}",
+            )
+            session.add(record)
+            records.append(record)
+        await session.flush()
+        return records
+
+    monkeypatch.setattr(OpenAIStructuredClient, "validate_api_key", fake_validate_api_key)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_json", fake_generate_json)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_markdown_reply", fake_generate_markdown_reply)
+    monkeypatch.setattr(CalendarService, "create_calendar_events", fake_create_calendar_events)
+
+    llm_response = await client.post(
+        "/api/credentials/llm",
+        headers=auth_headers,
+        json={"provider": "openai", "api_key": "sk-test-calendar-123"},
+    )
+    assert llm_response.status_code == 200
+
+    conversation_response = await client.post("/api/conversations", headers=auth_headers, json={})
+    conversation_id = conversation_response.json()["id"]
+
+    message_response = await client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+        json={"content": "Add all deadlines to my calendar."},
+    )
+    assert message_response.status_code == 200
+    run_id = message_response.json()["assistant_run"]["id"]
+
+    waiting_response = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+    assert waiting_response.status_code == 200
+    assert waiting_response.json()["status"] == "waiting_for_approval"
+    tool_call_id = waiting_response.json()["pending_tool_call_id"]
+    assert tool_call_id is not None
+
+    tool_call_response = await client.get(f"/api/tool-calls/{tool_call_id}", headers=auth_headers)
+    assert tool_call_response.status_code == 200
+    tool_call = tool_call_response.json()
+    assert tool_call["tool_name"] == "create_calendar_event"
+    assert len(tool_call["candidate_events"]) == 1
+
+    approve_response = await client.post(
+        f"/api/tool-calls/{tool_call_id}/approve",
+        headers=auth_headers,
+        json={"decision_comment": "Please create them."},
+    )
+    assert approve_response.status_code == 200
+
+    for _ in range(10):
+        run_response = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+        if run_response.json()["status"] in {"completed", "failed"}:
+            break
+        await asyncio.sleep(0.05)
+    assert run_response.json()["status"] == "completed"
+    assert run_response.json()["pending_tool_call_id"] is None
+
+    messages_response = await client.get(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+    )
+    messages = messages_response.json()
+    assert any(message["role"] == "tool" for message in messages)
+    assert any(message["role"] == "assistant" for message in messages)
+
+    event_result = await db_session.execute(select(CandidateEvent))
+    event = event_result.scalar_one()
+    assert event.status == CandidateEventStatus.SYNCED.value
+
+
+@pytest.mark.asyncio
+async def test_conversation_run_falls_back_to_markdown_reply_when_decision_json_is_unusable(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_validate_api_key(self, api_key: str) -> None:
+        return None
+
+    async def fake_generate_json(self, *, api_key: str, system_prompt: str, user_prompt: str) -> str:
+        return '{"unexpected":"payload"}'
+
+    async def fake_generate_markdown_reply(
+        self,
+        *,
+        api_key: str,
+        system_prompt: str,
+        conversation_messages: list[dict[str, str]],
+        additional_context: dict[str, object] | None = None,
+    ) -> str:
+        assert any(message["role"] == "user" for message in conversation_messages)
+        return "Fallback reply from LearnPilot."
+
+    monkeypatch.setattr(OpenAIStructuredClient, "validate_api_key", fake_validate_api_key)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_json", fake_generate_json)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_markdown_reply", fake_generate_markdown_reply)
+
+    llm_response = await client.post(
+        "/api/credentials/llm",
+        headers=auth_headers,
+        json={"provider": "openai", "api_key": "sk-test-fallback-123"},
+    )
+    assert llm_response.status_code == 200
+
+    conversation_response = await client.post("/api/conversations", headers=auth_headers, json={})
+    conversation_id = conversation_response.json()["id"]
+
+    message_response = await client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+        json={"content": "Hi there"},
+    )
+    assert message_response.status_code == 200
+    run_id = message_response.json()["assistant_run"]["id"]
+
+    for _ in range(10):
+        run_response = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+        if run_response.json()["status"] in {"completed", "failed"}:
+            break
+        await asyncio.sleep(0.05)
+
+    assert run_response.json()["status"] == "completed"
+
+    messages_response = await client.get(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+    )
+    assert messages_response.status_code == 200
+    messages = messages_response.json()
+    assert any(
+        message["role"] == "assistant" and message["content_markdown"] == "Fallback reply from LearnPilot."
+        for message in messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_conversation_removes_it_from_the_workspace(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    conversation_response = await client.post("/api/conversations", headers=auth_headers, json={})
+    assert conversation_response.status_code == 200
+    conversation_id = conversation_response.json()["id"]
+
+    delete_response = await client.delete(
+        f"/api/conversations/{conversation_id}",
+        headers=auth_headers,
+    )
+    assert delete_response.status_code == 204
+
+    list_response = await client.get("/api/conversations", headers=auth_headers)
+    assert list_response.status_code == 200
+    assert all(conversation["id"] != conversation_id for conversation in list_response.json())
+
+    conversation_result = await db_session.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )
+    assert conversation_result.scalar_one_or_none() is None

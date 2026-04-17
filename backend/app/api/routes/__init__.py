@@ -9,6 +9,7 @@ from app.api.routes import (
     messages,
     notes,
     runs,
+    tool_calls,
     workspace,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "messages",
     "notes",
     "runs",
+    "tool_calls",
     "workspace",
 ]

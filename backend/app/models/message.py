@@ -9,6 +9,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.assistant_run import AssistantRun
+    from app.models.candidate_event import CandidateEvent
     from app.models.conversation import Conversation
     from app.models.message_attachment import MessageAttachment
     from app.models.user import User
@@ -36,4 +37,8 @@ class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     assistant_runs: Mapped[list["AssistantRun"]] = relationship(
         back_populates="message",
         cascade="all, delete-orphan",
+    )
+    candidate_events: Mapped[list["CandidateEvent"]] = relationship(
+        foreign_keys="CandidateEvent.source_message_id",
+        back_populates="source_message",
     )

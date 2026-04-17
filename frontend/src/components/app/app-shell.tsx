@@ -23,6 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { token, logout } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [creating, setCreating] = useState(false);
+  const [deletingConversationId, setDeletingConversationId] = useState<string | null>(null);
 
   const loadConversations = useCallback(async () => {
     if (!token) {
@@ -67,6 +68,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       const _ignored = _error as ApiError;
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleDeleteConversation(conversationId: string) {
+    if (!token) {
+      return;
+    }
+    setDeletingConversationId(conversationId);
+    try {
+      await conversationsApi.remove(token, conversationId);
+      startTransition(() => {
+        setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
+      });
+      if (pathname === `/app/chat/${conversationId}`) {
+        router.push("/app/chat");
+      }
+    } catch (_error) {
+      const _ignored = _error as ApiError;
+    } finally {
+      setDeletingConversationId(null);
     }
   }
 
@@ -129,23 +150,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </p>
               ) : (
                 conversations.map((conversation) => (
-                  <Link
+                  <div
                     key={conversation.id}
-                    href={`/app/chat/${conversation.id}`}
                     className={cn(
-                      "rounded-lg border px-3 py-2 transition",
+                      "flex items-start gap-2 rounded-lg border px-3 py-2 transition",
                       pathname === `/app/chat/${conversation.id}`
                         ? "border-[var(--primary)] bg-[var(--accent-soft)]"
                         : "border-[var(--border)] bg-white/50 hover:bg-white/80",
                     )}
                   >
-                    <p className="line-clamp-2 text-xs font-semibold">{conversation.title}</p>
-                    <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
-                      {conversation.last_message_at
-                        ? formatDateTime(conversation.last_message_at)
-                        : "Empty chat"}
-                    </p>
-                  </Link>
+                    <Link
+                      href={`/app/chat/${conversation.id}`}
+                      className="min-w-0 flex-1"
+                    >
+                      <p className="line-clamp-2 text-xs font-semibold">{conversation.title}</p>
+                      <p className="mt-1 text-[11px] text-[var(--muted-foreground)]">
+                        {conversation.last_message_at
+                          ? formatDateTime(conversation.last_message_at)
+                          : "Empty chat"}
+                      </p>
+                    </Link>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${conversation.title}`}
+                      disabled={deletingConversationId === conversation.id}
+                      onClick={() => void handleDeleteConversation(conversation.id)}
+                      className="rounded-md px-1.5 py-1 text-[11px] text-[var(--muted-foreground)] transition hover:bg-white/80 hover:text-[var(--danger)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {deletingConversationId === conversation.id ? "..." : "×"}
+                    </button>
+                  </div>
                 ))
               )}
             </div>

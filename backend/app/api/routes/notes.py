@@ -7,6 +7,7 @@ from app.db.session import get_db_session
 from app.models.user import User
 from app.schemas.domain import GeneratedNote
 from app.schemas.note import NoteResponse, NoteSaveRequest
+from app.schemas.session_note import SessionNoteResponse, SessionNoteRevisionResponse
 from app.services import build_services
 from app.services.document_service import DocumentService
 
@@ -14,15 +15,31 @@ router = APIRouter(prefix="/notes", tags=["notes"])
 document_service = DocumentService()
 
 
-@router.get("", response_model=list[NoteResponse])
+@router.get("", response_model=list[SessionNoteResponse])
 async def list_notes(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
-) -> list[NoteResponse]:
+) -> list[SessionNoteResponse]:
     services = build_services(settings)
-    notes = await services.note_service.list_notes(session, user_id=current_user.id)
-    return [NoteResponse.model_validate(note) for note in notes]
+    notes = await services.session_note_service.list_notes(session, user_id=current_user.id)
+    return [services.session_note_service.to_response(note) for note in notes]
+
+
+@router.get("/{note_id}/revisions", response_model=list[SessionNoteRevisionResponse])
+async def list_note_revisions(
+    note_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> list[SessionNoteRevisionResponse]:
+    services = build_services(settings)
+    revisions = await services.session_note_service.list_revisions(
+        session,
+        user_id=current_user.id,
+        note_id=note_id,
+    )
+    return [services.session_note_service.to_revision_response(revision) for revision in revisions]
 
 
 @router.post("/save", response_model=NoteResponse, status_code=status.HTTP_200_OK)

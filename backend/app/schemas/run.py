@@ -16,10 +16,10 @@ class AssistantRunResponse(TimestampedModel):
     message_id: str
     user_id: str
     status: str
+    pending_tool_call_id: str | None
     trace: dict[str, Any]
     error_message: str | None
 
 
 class AssistantRunStartResponse(BaseModel):
     assistant_run: AssistantRunResponse
-

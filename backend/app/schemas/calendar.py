@@ -17,13 +17,18 @@ class CreateCalendarEventsRequest(BaseModel):
 
 class CandidateEventResponse(TimestampedModel):
     user_id: str
-    document_id: str
+    document_id: str | None
+    conversation_id: str | None
+    tool_call_id: str | None
+    source_message_id: str | None
+    source_document_id: str | None
     title: str
     start_time: datetime
     end_time: datetime | None
     description: str | None
     location: str | None
     source_excerpt: str | None
+    normalized_year_defaulted: bool
     status: str
     error_message: str | None
 

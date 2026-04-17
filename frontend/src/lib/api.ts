@@ -13,6 +13,9 @@ import type {
   DriveArchiveStatus,
   Message,
   Note,
+  SessionNote,
+  SessionNoteRevision,
+  ToolCall,
   TokenResponse,
   User,
 } from "@/lib/types";
@@ -178,7 +181,7 @@ export const conversationsApi = {
   list(token: string) {
     return apiRequest<Conversation[]>("/conversations", { token });
   },
-  create(token: string, payload: { title?: string | null }) {
+  create(token: string, payload: { title?: string | null; initial_document_ids?: string[] }) {
     return apiRequest<Conversation>("/conversations", {
       method: "POST",
       token,
@@ -187,6 +190,12 @@ export const conversationsApi = {
   },
   detail(token: string, conversationId: string) {
     return apiRequest<ConversationDetail>(`/conversations/${conversationId}`, { token });
+  },
+  remove(token: string, conversationId: string) {
+    return apiRequest<void>(`/conversations/${conversationId}`, {
+      method: "DELETE",
+      token,
+    });
   },
 };
 
@@ -248,22 +257,39 @@ export const runsApi = {
 
 export const notesApi = {
   list(token: string) {
-    return apiRequest<Note[]>("/notes", { token });
+    return apiRequest<SessionNote[]>("/notes", { token });
   },
-  save(
-    token: string,
-    payload: {
-      document_id: string;
-      summary: string;
-      key_points: string[];
-      action_items: string[];
-    },
-  ) {
-    return apiRequest<Note>("/notes/save", {
-      method: "POST",
-      token,
-      body: payload,
-    });
+  getForConversation(token: string, conversationId: string) {
+    return apiRequest<SessionNote | null>(`/conversations/${conversationId}/note`, { token });
+  },
+  listRevisions(token: string, noteId: string) {
+    return apiRequest<SessionNoteRevision[]>(`/notes/${noteId}/revisions`, { token });
+  },
+};
+
+export const toolCallsApi = {
+  get(token: string, toolCallId: string) {
+    return apiRequest<ToolCall>(`/tool-calls/${toolCallId}`, { token });
+  },
+  approve(token: string, toolCallId: string, payload: { decision_comment?: string }) {
+    return apiRequest<{ tool_call_id: string; status: string; assistant_run_id: string }>(
+      `/tool-calls/${toolCallId}/approve`,
+      {
+        method: "POST",
+        token,
+        body: payload,
+      },
+    );
+  },
+  reject(token: string, toolCallId: string, payload: { decision_comment?: string }) {
+    return apiRequest<{ tool_call_id: string; status: string; assistant_run_id: string }>(
+      `/tool-calls/${toolCallId}/reject`,
+      {
+        method: "POST",
+        token,
+        body: payload,
+      },
+    );
   },
 };
 

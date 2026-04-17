@@ -123,6 +123,29 @@ class MessageService:
         await session.commit()
         return await self.get_message(session, user_id=user_id, conversation_id=conversation_id, message_id=message.id)
 
+    async def create_tool_message(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        conversation_id: str,
+        content: str,
+    ) -> Message:
+        conversation = await self.conversation_service.get_conversation(
+            session, user_id=user_id, conversation_id=conversation_id
+        )
+        message = Message(
+            conversation_id=conversation.id,
+            user_id=user_id,
+            role=MessageRole.TOOL.value,
+            content_markdown=content,
+            status=MessageStatus.COMPLETE.value,
+        )
+        session.add(message)
+        conversation.last_message_at = utcnow()
+        await session.commit()
+        return await self.get_message(session, user_id=user_id, conversation_id=conversation_id, message_id=message.id)
+
     async def get_message(
         self,
         session: AsyncSession,

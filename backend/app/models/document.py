@@ -34,7 +34,9 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="document", cascade="all, delete-orphan", uselist=False
     )
     candidate_events: Mapped[list["CandidateEvent"]] = relationship(
-        back_populates="document", cascade="all, delete-orphan"
+        foreign_keys="CandidateEvent.document_id",
+        back_populates="document",
+        cascade="all, delete-orphan",
     )
     analysis_runs: Mapped[list["AnalysisRun"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"

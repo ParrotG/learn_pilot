@@ -11,6 +11,7 @@ from app.api.routes import (
     messages,
     notes,
     runs,
+    tool_calls,
     workspace,
 )
 
@@ -21,6 +22,7 @@ api_router.include_router(conversations.router)
 api_router.include_router(messages.router)
 api_router.include_router(workspace.router)
 api_router.include_router(runs.router)
+api_router.include_router(tool_calls.router)
 api_router.include_router(documents.router)
 api_router.include_router(assistant.router)
 api_router.include_router(notes.router)

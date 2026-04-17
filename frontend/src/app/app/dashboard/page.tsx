@@ -13,12 +13,12 @@ import { StatusCardGrid } from "@/components/app/status-card-grid";
 import { UploadCard } from "@/components/app/upload-card";
 import { Alert } from "@/components/ui/alert";
 import { conversationsApi, credentialsApi, documentsApi, notesApi } from "@/lib/api";
-import type { ApiError, Conversation, CredentialStatus, DocumentListItem, Note } from "@/lib/types";
+import type { ApiError, Conversation, CredentialStatus, DocumentListItem, SessionNote } from "@/lib/types";
 
 export default function DashboardPage() {
   const { token, user } = useAuth();
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const [notes, setNotes] = useState<SessionNote[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credentialStatus, setCredentialStatus] = useState<CredentialStatus | null>(null);
   const [loading, setLoading] = useState(true);
