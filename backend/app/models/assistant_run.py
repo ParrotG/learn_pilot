@@ -9,6 +9,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.conversation import Conversation
+    from app.models.export_artifact import ExportArtifact
     from app.models.message import Message
     from app.models.session_note_revision import SessionNoteRevision
     from app.models.tool_call import ToolCall
@@ -43,6 +44,10 @@ class AssistantRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         order_by="ToolCall.created_at",
     )
     note_revisions: Mapped[list["SessionNoteRevision"]] = relationship(
+        back_populates="assistant_run",
+        cascade="all, delete-orphan",
+    )
+    export_artifacts: Mapped[list["ExportArtifact"]] = relationship(
         back_populates="assistant_run",
         cascade="all, delete-orphan",
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import asyncio
+from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
@@ -11,13 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.calendar_record import CalendarRecord
 from app.models.candidate_event import CandidateEvent
 from app.models.conversation import Conversation
-from app.models.enums import AssistantAction, CandidateEventStatus
+from app.models.enums import AssistantAction, CandidateEventStatus, ExportArtifactStatus
+from app.models.export_artifact import ExportArtifact
 from app.models.session_note import SessionNote
 from app.models.user_credential import UserCredential
 from app.integrations.openai_client import OpenAIStructuredClient
 from app.schemas.domain import GeneratedNote, IntentResult
 from app.services.assistant_runtime_service import AssistantRuntimeService
 from app.services.calendar_service import CalendarService
+from app.services.drive_service import DriveService
+from app.services.export_service import ExportService
 from app.services.intent_service import IntentService
 from app.services.note_service import NoteService
 from tests.conftest import build_pdf_bytes
@@ -682,3 +686,197 @@ def test_assistant_runtime_document_excerpt_keeps_document_tail_when_truncated()
     assert "A" * 200 in excerpt
     assert "B" * 200 in excerpt
     assert "[... omitted middle section ...]" in excerpt
+
+
+@pytest.mark.asyncio
+async def test_request_export_creates_pending_tool_call(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+) -> None:
+    conversation_response = await client.post("/api/conversations", headers=auth_headers, json={})
+    conversation_id = conversation_response.json()["id"]
+
+    conversation_result = await db_session.execute(select(Conversation).where(Conversation.id == conversation_id))
+    conversation = conversation_result.scalar_one()
+
+    note = SessionNote(
+        user_id=conversation.user_id,
+        conversation_id=conversation_id,
+        title="Exam Prep",
+        current_markdown="# Exam Prep\n\n- Review chapter 6.",
+    )
+    db_session.add(note)
+    await db_session.commit()
+
+    export_response = await client.post(
+        f"/api/conversations/{conversation_id}/exports",
+        headers=auth_headers,
+        json={"target_format": "docx"},
+    )
+    assert export_response.status_code == 200
+    body = export_response.json()
+    assert body["assistant_run"]["status"] == "waiting_for_approval"
+    assert body["tool_call"]["tool_name"] == "export_note_with_pandoc"
+
+
+@pytest.mark.asyncio
+async def test_export_and_drive_upload_tool_flow(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    async def fake_validate_api_key(self, api_key: str) -> None:
+        return None
+
+    async def fake_generate_markdown_reply(
+        self,
+        *,
+        api_key: str,
+        system_prompt: str,
+        conversation_messages: list[dict[str, str]],
+        additional_context: dict[str, object] | None = None,
+    ) -> str:
+        assert additional_context is not None
+        return "The requested export step has completed."
+
+    async def fake_generate_export_artifact(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        conversation_id: str,
+        assistant_run_id: str,
+        tool_call_id: str,
+        target_format: str,
+        note_id: str | None,
+        settings,
+    ) -> ExportArtifact:
+        output_path = tmp_path / f"artifact-{target_format}.{target_format}"
+        output_path.write_bytes(b"fake artifact")
+        note = await self.session_note_service.get_note_for_conversation(
+            session,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+        assert note is not None
+        artifact = ExportArtifact(
+            conversation_id=conversation_id,
+            note_id=note.id,
+            assistant_run_id=assistant_run_id,
+            tool_call_id=tool_call_id,
+            user_id=user_id,
+            source_format="markdown",
+            target_format=target_format,
+            filename=output_path.name,
+            storage_path=str(output_path),
+            file_size=output_path.stat().st_size,
+            status=ExportArtifactStatus.COMPLETED.value,
+        )
+        session.add(artifact)
+        await session.flush()
+        return artifact
+
+    async def fake_upload_export_artifact(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        artifact_id: str,
+        settings,
+    ) -> ExportArtifact:
+        artifact = await self.export_service.get_export_artifact(session, user_id=user_id, artifact_id=artifact_id)
+        artifact.drive_file_id = f"drive-{artifact.id}"
+        artifact.drive_folder_id = "folder-1"
+        artifact.status = ExportArtifactStatus.UPLOADED.value
+        await session.flush()
+        return artifact
+
+    monkeypatch.setattr(OpenAIStructuredClient, "validate_api_key", fake_validate_api_key)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_markdown_reply", fake_generate_markdown_reply)
+    monkeypatch.setattr(ExportService, "generate_export_artifact", fake_generate_export_artifact)
+    monkeypatch.setattr(DriveService, "upload_export_artifact", fake_upload_export_artifact)
+
+    llm_response = await client.post(
+        "/api/credentials/llm",
+        headers=auth_headers,
+        json={"provider": "openai", "api_key": "sk-test-export-123"},
+    )
+    assert llm_response.status_code == 200
+
+    conversation_response = await client.post("/api/conversations", headers=auth_headers, json={})
+    conversation_id = conversation_response.json()["id"]
+
+    note_result = await db_session.execute(select(Conversation).where(Conversation.id == conversation_id))
+    conversation = note_result.scalar_one()
+    note = SessionNote(
+        user_id=conversation.user_id,
+        conversation_id=conversation.id,
+        title="Session Export",
+        current_markdown="# Session Export\n\n- Item 1",
+    )
+    db_session.add(note)
+    await db_session.commit()
+
+    export_response = await client.post(
+        f"/api/conversations/{conversation_id}/exports",
+        headers=auth_headers,
+        json={"target_format": "docx"},
+    )
+    assert export_response.status_code == 200
+    export_run_id = export_response.json()["assistant_run"]["id"]
+    export_tool_call_id = export_response.json()["tool_call"]["id"]
+
+    approve_export_response = await client.post(
+        f"/api/tool-calls/{export_tool_call_id}/approve",
+        headers=auth_headers,
+        json={"decision_comment": "Generate the file."},
+    )
+    assert approve_export_response.status_code == 200
+
+    for _ in range(10):
+        run_response = await client.get(f"/api/runs/{export_run_id}", headers=auth_headers)
+        if run_response.json()["status"] in {"completed", "failed"}:
+            break
+        await asyncio.sleep(0.05)
+    assert run_response.json()["status"] == "completed"
+
+    exports_response = await client.get(
+        f"/api/conversations/{conversation_id}/exports",
+        headers=auth_headers,
+    )
+    assert exports_response.status_code == 200
+    artifacts = exports_response.json()
+    assert len(artifacts) == 1
+    artifact_id = artifacts[0]["id"]
+    assert artifacts[0]["status"] == "completed"
+
+    upload_response = await client.post(
+        "/api/drive/upload-artifact",
+        headers=auth_headers,
+        json={"artifact_id": artifact_id},
+    )
+    assert upload_response.status_code == 200
+    upload_run_id = upload_response.json()["assistant_run"]["id"]
+    upload_tool_call_id = upload_response.json()["tool_call"]["id"]
+
+    approve_upload_response = await client.post(
+        f"/api/tool-calls/{upload_tool_call_id}/approve",
+        headers=auth_headers,
+        json={"decision_comment": "Upload it."},
+    )
+    assert approve_upload_response.status_code == 200
+
+    for _ in range(10):
+        run_response = await client.get(f"/api/runs/{upload_run_id}", headers=auth_headers)
+        if run_response.json()["status"] in {"completed", "failed"}:
+            break
+        await asyncio.sleep(0.05)
+    assert run_response.json()["status"] == "completed"
+
+    artifact_response = await client.get(f"/api/exports/{artifact_id}", headers=auth_headers)
+    assert artifact_response.status_code == 200
+    assert artifact_response.json()["status"] == "uploaded"
+    assert artifact_response.json()["drive_file_id"] is not None

@@ -5,6 +5,7 @@ from app.models.candidate_event import CandidateEvent
 from app.models.conversation import Conversation
 from app.models.conversation_document import ConversationDocument
 from app.models.document import Document
+from app.models.export_artifact import ExportArtifact
 from app.models.message import Message
 from app.models.message_attachment import MessageAttachment
 from app.models.note import Note
@@ -23,6 +24,7 @@ __all__ = [
     "Conversation",
     "ConversationDocument",
     "Document",
+    "ExportArtifact",
     "Message",
     "MessageAttachment",
     "Note",

@@ -34,13 +34,15 @@ Decide whether to:
 Available tools:
 - patch_note: use when the user wants to create, replace, or substantially revise the session note.
 - create_calendar_event: use when the user explicitly wants deadlines, meetings, or study events added to Google Calendar.
+- export_note_with_pandoc: use when the user wants the current session note exported as a docx or pptx file.
+- drive_upload_artifact: use when the user explicitly wants an exported artifact uploaded to Google Drive.
 
 Return JSON only with this shape:
 {
   "decision_type": "assistant_reply" | "tool_request",
   "assistant_reply": "markdown reply or empty string",
   "tool_request": {
-    "tool_name": "patch_note" | "create_calendar_event",
+    "tool_name": "patch_note" | "create_calendar_event" | "export_note_with_pandoc" | "drive_upload_artifact",
     "arguments": {}
   }
 }
@@ -50,6 +52,8 @@ Rules:
 - Use assistant_reply for normal Q&A or lightweight guidance.
 - For patch_note, arguments must contain title, full_markdown, and change_summary.
 - For create_calendar_event, arguments must contain events, where each event includes title and start_text, and may include end_text, description, location, source_excerpt, and source_document_id.
+- For export_note_with_pandoc, arguments must contain target_format and may contain note_id. target_format must be docx or pptx.
+- For drive_upload_artifact, arguments must contain artifact_id, which should be selected from the export artifacts provided in the context.
 - For create_calendar_event, prefer machine-friendly date strings:
   - `YYYY-MM-DD`
   - `YYYY-MM-DD HH:MM`
@@ -57,6 +61,7 @@ Rules:
 - If the source does not explicitly include a year, use the current_year from the provided context.
 - Do not invent a different year when the year is unknown.
 - If calendar creation is requested, extract the relevant events from the conversation and attached documents.
+- If the user asks to export and upload in one message, request export_note_with_pandoc first and explain that Drive upload will be a second step after the artifact exists.
 """.strip()
 
 FALLBACK_ASSISTANT_SYSTEM_PROMPT = """
@@ -290,6 +295,49 @@ class AssistantRuntimeService:
             await session.commit()
             return
 
+        if tool_name == "export_note_with_pandoc":
+            target_format = str(decision.tool_request.arguments.get("target_format", "")).lower().strip()
+            if target_format not in {"docx", "pptx"}:
+                raise ExternalServiceError("The export tool request did not include a supported target format.")
+            tool_call = await self.tool_gateway_service.create_export_tool_call(
+                session,
+                run=run,
+                target_format=target_format,
+                note_id=self._optional_text(decision.tool_request.arguments.get("note_id")),
+            )
+            run.status = AssistantRunExecutionStatus.WAITING_FOR_APPROVAL.value
+            run.pending_tool_call_id = tool_call.id
+            run.trace = {
+                "decision_type": "tool_request",
+                "tool_name": tool_name,
+                "tool_call_id": tool_call.id,
+                "target_format": target_format,
+            }
+            run.error_message = None
+            await session.commit()
+            return
+
+        if tool_name == "drive_upload_artifact":
+            artifact_id = self._optional_text(decision.tool_request.arguments.get("artifact_id"))
+            if artifact_id is None:
+                raise ExternalServiceError("The Drive upload tool request did not include an artifact id.")
+            tool_call = await self.tool_gateway_service.create_drive_upload_tool_call(
+                session,
+                run=run,
+                artifact_id=artifact_id,
+            )
+            run.status = AssistantRunExecutionStatus.WAITING_FOR_APPROVAL.value
+            run.pending_tool_call_id = tool_call.id
+            run.trace = {
+                "decision_type": "tool_request",
+                "tool_name": tool_name,
+                "tool_call_id": tool_call.id,
+                "artifact_id": artifact_id,
+            }
+            run.error_message = None
+            await session.commit()
+            return
+
         raise ExternalServiceError(f"Unsupported tool requested by assistant: {tool_name}")
 
     async def _resume_from_tool_call(
@@ -311,11 +359,12 @@ class AssistantRuntimeService:
             return
 
         if tool_call.status == ToolCallStatus.REJECTED.value:
+            rejection_message = self._build_rejected_tool_message(tool_call)
             await self.message_service.create_tool_message(
                 session,
                 user_id=run.user_id,
                 conversation_id=run.conversation_id,
-                content="Calendar event creation was rejected by the user.",
+                content=rejection_message,
             )
             final_reply = await self._generate_post_tool_reply(
                 api_key=api_key,
@@ -324,7 +373,7 @@ class AssistantRuntimeService:
                 tool_result={
                     "tool_name": tool_call.tool_name,
                     "status": tool_call.status,
-                    "result": "The user rejected the calendar write request.",
+                    "result": rejection_message,
                 },
             )
             await self.message_service.create_assistant_message(
@@ -354,10 +403,7 @@ class AssistantRuntimeService:
             session,
             user_id=run.user_id,
             conversation_id=run.conversation_id,
-            content=(
-                "Created Google Calendar events.\n\n"
-                f"Events created: {len(result.get('calendar_record_ids', []))}"
-            ),
+            content=self._build_tool_completion_message(tool_call.tool_name, result),
         )
         final_reply = await self._generate_post_tool_reply(
             api_key=api_key,
@@ -381,6 +427,7 @@ class AssistantRuntimeService:
             "tool_name": tool_call.tool_name,
             "tool_status": tool_call.status,
             "candidate_event_count": len(tool_call.candidate_events),
+            "result": result,
         }
         run.error_message = None
         await session.commit()
@@ -424,15 +471,32 @@ class AssistantRuntimeService:
             conversation_id=conversation_id,
             message=message,
         )
+        export_artifacts = await self.tool_gateway_service.export_service.list_conversation_exports(
+            session,
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
         return {
             "conversation_messages": self._serialize_messages_for_llm(messages[-12:]),
             "documents_considered": document_context["documents_considered"],
             "documents": document_context["documents"],
             "current_year": datetime.now(UTC).year,
             "current_date": datetime.now(UTC).date().isoformat(),
+            "export_artifacts": [
+                {
+                    "id": artifact.id,
+                    "filename": artifact.filename,
+                    "target_format": artifact.target_format,
+                    "status": artifact.status,
+                    "drive_uploaded": bool(artifact.drive_file_id),
+                    "drive_file_id": artifact.drive_file_id,
+                }
+                for artifact in export_artifacts[:6]
+            ],
             "session_note": {
                 "title": session_note.title,
                 "current_markdown": session_note.current_markdown,
+                "note_id": session_note.id,
             }
             if session_note
             else None,
@@ -665,3 +729,39 @@ class AssistantRuntimeService:
         head = text[:DOCUMENT_EXCERPT_HEAD_CHARS].rstrip()
         tail = text[-DOCUMENT_EXCERPT_TAIL_CHARS :].lstrip()
         return f"{head}{DOCUMENT_EXCERPT_GAP_MARKER}{tail}"
+
+    def _optional_text(self, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _build_rejected_tool_message(self, tool_call: ToolCall) -> str:
+        if tool_call.tool_name == "create_calendar_event":
+            return "Calendar event creation was rejected by the user."
+        if tool_call.tool_name == "export_note_with_pandoc":
+            return "Exporting the session note was rejected by the user."
+        if tool_call.tool_name == "drive_upload_artifact":
+            return "Uploading the exported file to Google Drive was rejected by the user."
+        return "The requested tool action was rejected by the user."
+
+    def _build_tool_completion_message(self, tool_name: str, result: dict[str, object]) -> str:
+        if tool_name == "create_calendar_event":
+            return (
+                "Created Google Calendar events.\n\n"
+                f"Events created: {len(result.get('calendar_record_ids', []))}"
+            )
+        if tool_name == "export_note_with_pandoc":
+            return (
+                "Generated an export artifact.\n\n"
+                f"Filename: {result.get('filename', 'session-note')}\n"
+                f"Format: {result.get('target_format', 'unknown')}\n"
+                f"File size: {result.get('file_size', 0)} bytes"
+            )
+        if tool_name == "drive_upload_artifact":
+            return (
+                "Uploaded an export artifact to Google Drive.\n\n"
+                f"Filename: {result.get('filename', 'artifact')}\n"
+                f"Drive file id: {result.get('drive_file_id', 'unknown')}"
+            )
+        return "Completed a tool action."

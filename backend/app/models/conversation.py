@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.models.assistant_run import AssistantRun
     from app.models.candidate_event import CandidateEvent
     from app.models.conversation_document import ConversationDocument
+    from app.models.export_artifact import ExportArtifact
     from app.models.message import Message
     from app.models.session_note import SessionNote
     from app.models.tool_call import ToolCall
@@ -53,4 +54,9 @@ class Conversation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     candidate_events: Mapped[list["CandidateEvent"]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan",
+    )
+    export_artifacts: Mapped[list["ExportArtifact"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ExportArtifact.created_at.desc()",
     )

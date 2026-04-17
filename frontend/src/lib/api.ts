@@ -11,6 +11,7 @@ import type {
   DocumentDetail,
   DocumentListItem,
   DriveArchiveStatus,
+  ExportArtifact,
   Message,
   Note,
   SessionNote,
@@ -80,6 +81,31 @@ export async function apiRequest<T>(
   }
 
   return payload as T;
+}
+
+export async function apiDownload(path: string, token: string): Promise<Blob> {
+  const response = await fetch(`/api/backend${path}`, {
+    headers: {
+      Accept: "application/octet-stream",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const payload = await readResponse(response);
+    const error = (typeof payload === "object" && payload
+      ? payload
+      : {
+          code: "request_failed",
+          message:
+            typeof payload === "string" && payload.trim().length > 0
+              ? payload
+              : "The request could not be completed. Please try again.",
+        }) as ApiError;
+    throw error;
+  }
+
+  return response.blob();
 }
 
 export const authApi = {
@@ -267,6 +293,35 @@ export const notesApi = {
   },
 };
 
+export const exportsApi = {
+  listForConversation(token: string, conversationId: string) {
+    return apiRequest<ExportArtifact[]>(`/conversations/${conversationId}/exports`, { token });
+  },
+  listRecent(token: string, limit = 5) {
+    return apiRequest<ExportArtifact[]>(`/exports?limit=${limit}`, { token });
+  },
+  requestExport(
+    token: string,
+    conversationId: string,
+    payload: { target_format: "docx" | "pptx"; note_id?: string | null },
+  ) {
+    return apiRequest<{ assistant_run: AssistantRun; tool_call: ToolCall }>(
+      `/conversations/${conversationId}/exports`,
+      {
+        method: "POST",
+        token,
+        body: payload,
+      },
+    );
+  },
+  get(token: string, artifactId: string) {
+    return apiRequest<ExportArtifact>(`/exports/${artifactId}`, { token });
+  },
+  async download(token: string, artifactId: string) {
+    return apiDownload(`/exports/${artifactId}/download`, token);
+  },
+};
+
 export const toolCallsApi = {
   get(token: string, toolCallId: string) {
     return apiRequest<ToolCall>(`/tool-calls/${toolCallId}`, { token });
@@ -320,5 +375,12 @@ export const driveApi = {
   },
   status(token: string, documentId: string) {
     return apiRequest<DriveArchiveStatus>(`/drive/files/${documentId}`, { token });
+  },
+  requestUploadArtifact(token: string, artifactId: string) {
+    return apiRequest<{ assistant_run: AssistantRun; tool_call: ToolCall }>("/drive/upload-artifact", {
+      method: "POST",
+      token,
+      body: { artifact_id: artifactId },
+    });
   },
 };

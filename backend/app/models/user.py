@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.candidate_event import CandidateEvent
     from app.models.conversation import Conversation
     from app.models.document import Document
+    from app.models.export_artifact import ExportArtifact
     from app.models.message import Message
     from app.models.note import Note
     from app.models.session_note import SessionNote
@@ -54,6 +55,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     tool_approval_decisions: Mapped[list["ToolApprovalDecision"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    export_artifacts: Mapped[list["ExportArtifact"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

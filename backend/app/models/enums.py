@@ -68,3 +68,11 @@ class ToolCallStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class ExportArtifactStatus(StrEnum):
+    QUEUED = "queued"
+    GENERATING = "generating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    UPLOADED = "uploaded"

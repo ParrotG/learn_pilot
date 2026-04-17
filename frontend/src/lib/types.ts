@@ -207,7 +207,7 @@ export type ToolCall = {
   id: string;
   assistant_run_id: string;
   conversation_id: string;
-  tool_name: "patch_note" | "create_calendar_event";
+  tool_name: "patch_note" | "create_calendar_event" | "export_note_with_pandoc" | "drive_upload_artifact";
   arguments_json: Record<string, unknown>;
   status: "pending_approval" | "approved" | "rejected" | "running" | "completed" | "failed";
   approval_required: boolean;
@@ -225,6 +225,26 @@ export type DriveArchiveStatus = {
   drive_file_id: string | null;
   drive_folder_id: string | null;
   archived: boolean;
+};
+
+export type ExportArtifact = {
+  id: string;
+  conversation_id: string;
+  note_id: string;
+  assistant_run_id: string;
+  tool_call_id: string | null;
+  user_id: string;
+  source_format: string;
+  target_format: "docx" | "pptx";
+  filename: string;
+  storage_path: string;
+  file_size: number;
+  status: "queued" | "generating" | "completed" | "failed" | "uploaded";
+  drive_file_id: string | null;
+  drive_folder_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type AssistantAction =

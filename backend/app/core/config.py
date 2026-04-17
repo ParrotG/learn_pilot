@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4.1-mini"
     upload_dir: str = "data/uploads"
+    export_dir: str = "data/exports"
+    pandoc_binary: str = "pandoc"
     google_oauth_client_id: str = ""
     google_oauth_client_secret: str = ""
     google_oauth_redirect_uri: str = "http://localhost:8000/api/credentials/google/callback"
@@ -48,6 +50,13 @@ class Settings(BaseSettings):
         return self.backend_dir / upload_dir
 
     @property
+    def resolved_export_dir(self) -> Path:
+        export_dir = Path(self.export_dir)
+        if export_dir.is_absolute():
+            return export_dir
+        return self.backend_dir / export_dir
+
+    @property
     def sync_database_url(self) -> str:
         if self.database_url.startswith("sqlite+aiosqlite"):
             return self.database_url.replace("sqlite+aiosqlite", "sqlite", 1)
@@ -59,4 +68,3 @@ def get_settings() -> Settings:
     """Return a cached settings instance."""
 
     return Settings()
-

@@ -5,6 +5,7 @@ import { startTransition, useCallback, useEffect, useState } from "react";
 import { RecentConversationsCard } from "@/components/chat/recent-conversations-card";
 import { useAuth } from "@/components/providers/auth-provider";
 import { DocumentTable } from "@/components/app/document-table";
+import { RecentExportsCard } from "@/components/app/recent-exports-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { NoteListCard } from "@/components/app/note-list-card";
@@ -12,13 +13,14 @@ import { SectionHeading } from "@/components/ui/section-heading";
 import { StatusCardGrid } from "@/components/app/status-card-grid";
 import { UploadCard } from "@/components/app/upload-card";
 import { Alert } from "@/components/ui/alert";
-import { conversationsApi, credentialsApi, documentsApi, notesApi } from "@/lib/api";
-import type { ApiError, Conversation, CredentialStatus, DocumentListItem, SessionNote } from "@/lib/types";
+import { conversationsApi, credentialsApi, documentsApi, exportsApi, notesApi } from "@/lib/api";
+import type { ApiError, Conversation, CredentialStatus, DocumentListItem, ExportArtifact, SessionNote } from "@/lib/types";
 
 export default function DashboardPage() {
   const { token, user } = useAuth();
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [notes, setNotes] = useState<SessionNote[]>([]);
+  const [artifacts, setArtifacts] = useState<ExportArtifact[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [credentialStatus, setCredentialStatus] = useState<CredentialStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,11 +31,12 @@ export default function DashboardPage() {
       return;
     }
 
-    const [documentsResponse, notesResponse, credentialStatusResponse, conversationsResponse] = await Promise.all([
+    const [documentsResponse, notesResponse, credentialStatusResponse, conversationsResponse, artifactsResponse] = await Promise.all([
       documentsApi.list(token),
       notesApi.list(token),
       credentialsApi.status(token),
       conversationsApi.list(token),
+      exportsApi.listRecent(token, 4),
     ]);
 
     startTransition(() => {
@@ -41,6 +44,7 @@ export default function DashboardPage() {
       setNotes(notesResponse);
       setCredentialStatus(credentialStatusResponse);
       setConversations(conversationsResponse);
+      setArtifacts(artifactsResponse);
       setError(null);
       setLoading(false);
     });
@@ -88,10 +92,11 @@ export default function DashboardPage() {
 
       <StatusCardGrid user={user} credentials={credentialStatus} documents={documents} />
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr_1fr_1fr]">
         <UploadCard onUpload={handleUpload} />
         <NoteListCard notes={notes.slice(0, 4)} />
         <RecentConversationsCard conversations={conversations.slice(0, 4)} />
+        <RecentExportsCard artifacts={artifacts} />
       </div>
 
       {documents.length > 0 ? (

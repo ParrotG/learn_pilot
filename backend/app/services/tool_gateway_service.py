@@ -12,8 +12,10 @@ from app.models.tool_call import ToolCall
 from app.schemas.calendar import CandidateEventResponse
 from app.schemas.tool_call import ToolApprovalDecisionResponse, ToolCallResponse
 from app.services.calendar_service import CalendarService
+from app.services.export_service import ExportService
 from app.services.message_service import MessageService
 from app.services.session_note_service import SessionNoteService
+from app.services.drive_service import DriveService
 
 
 class ToolGatewayService:
@@ -22,10 +24,14 @@ class ToolGatewayService:
         *,
         calendar_service: CalendarService,
         session_note_service: SessionNoteService,
+        export_service: ExportService,
+        drive_service: DriveService,
         message_service: MessageService,
     ) -> None:
         self.calendar_service = calendar_service
         self.session_note_service = session_note_service
+        self.export_service = export_service
+        self.drive_service = drive_service
         self.message_service = message_service
 
     async def get_tool_call(self, session: AsyncSession, *, user_id: str, tool_call_id: str) -> ToolCall:
@@ -141,6 +147,58 @@ class ToolGatewayService:
         await session.flush()
         return tool_call
 
+    async def create_export_tool_call(
+        self,
+        session: AsyncSession,
+        *,
+        run: AssistantRun,
+        target_format: str,
+        note_id: str | None,
+    ) -> ToolCall:
+        tool_call = ToolCall(
+            assistant_run_id=run.id,
+            conversation_id=run.conversation_id,
+            tool_name="export_note_with_pandoc",
+            arguments_json={"target_format": target_format, "note_id": note_id},
+            status=ToolCallStatus.PENDING_APPROVAL.value,
+            approval_required=True,
+            approval_reason="Exporting the session note to a file requires approval.",
+        )
+        session.add(tool_call)
+        await session.flush()
+        return tool_call
+
+    async def create_drive_upload_tool_call(
+        self,
+        session: AsyncSession,
+        *,
+        run: AssistantRun,
+        artifact_id: str,
+    ) -> ToolCall:
+        artifact = await self.export_service.get_export_artifact(
+            session,
+            user_id=run.user_id,
+            artifact_id=artifact_id,
+        )
+        if artifact.conversation_id != run.conversation_id:
+            raise BadRequestError("The selected export artifact does not belong to this conversation.")
+        tool_call = ToolCall(
+            assistant_run_id=run.id,
+            conversation_id=run.conversation_id,
+            tool_name="drive_upload_artifact",
+            arguments_json={
+                "artifact_id": artifact.id,
+                "filename": artifact.filename,
+                "target_format": artifact.target_format,
+            },
+            status=ToolCallStatus.PENDING_APPROVAL.value,
+            approval_required=True,
+            approval_reason="Uploading an exported file to Google Drive requires approval.",
+        )
+        session.add(tool_call)
+        await session.flush()
+        return tool_call
+
     async def approve_tool_call(
         self,
         session: AsyncSession,
@@ -197,26 +255,60 @@ class ToolGatewayService:
         user_id: str,
         settings,
     ) -> dict[str, object]:
-        if tool_call.tool_name != "create_calendar_event":
-            raise BadRequestError(f"Unsupported approved tool call: {tool_call.tool_name}")
         tool_call.status = ToolCallStatus.RUNNING.value
         await session.flush()
 
         try:
-            records = await self.calendar_service.create_calendar_events(
-                session,
-                user_id=user_id,
-                candidate_event_ids=[event.id for event in tool_call.candidate_events],
-                settings=settings,
-            )
+            if tool_call.tool_name == "create_calendar_event":
+                records = await self.calendar_service.create_calendar_events(
+                    session,
+                    user_id=user_id,
+                    candidate_event_ids=[event.id for event in tool_call.candidate_events],
+                    settings=settings,
+                )
+                tool_call.result_json = {
+                    "candidate_event_ids": [event.id for event in tool_call.candidate_events],
+                    "calendar_record_ids": [record.id for record in records],
+                }
+            elif tool_call.tool_name == "export_note_with_pandoc":
+                artifact = await self.export_service.generate_export_artifact(
+                    session,
+                    user_id=user_id,
+                    conversation_id=tool_call.conversation_id,
+                    assistant_run_id=tool_call.assistant_run_id,
+                    tool_call_id=tool_call.id,
+                    target_format=str(tool_call.arguments_json.get("target_format", "")).lower(),
+                    note_id=self._optional_text(tool_call.arguments_json.get("note_id")),
+                    settings=settings,
+                )
+                tool_call.result_json = {
+                    "artifact_id": artifact.id,
+                    "filename": artifact.filename,
+                    "target_format": artifact.target_format,
+                    "file_size": artifact.file_size,
+                    "status": artifact.status,
+                }
+            elif tool_call.tool_name == "drive_upload_artifact":
+                artifact = await self.drive_service.upload_export_artifact(
+                    session,
+                    user_id=user_id,
+                    artifact_id=str(tool_call.arguments_json.get("artifact_id", "")),
+                    settings=settings,
+                )
+                tool_call.result_json = {
+                    "artifact_id": artifact.id,
+                    "filename": artifact.filename,
+                    "target_format": artifact.target_format,
+                    "drive_file_id": artifact.drive_file_id,
+                    "drive_folder_id": artifact.drive_folder_id,
+                    "status": artifact.status,
+                }
+            else:
+                raise BadRequestError(f"Unsupported approved tool call: {tool_call.tool_name}")
             tool_call.status = ToolCallStatus.COMPLETED.value
             tool_call.error_message = None
-            tool_call.result_json = {
-                "candidate_event_ids": [event.id for event in tool_call.candidate_events],
-                "calendar_record_ids": [record.id for record in records],
-            }
             await session.flush()
-            return tool_call.result_json
+            return tool_call.result_json or {}
         except Exception as exc:
             tool_call.status = ToolCallStatus.FAILED.value
             tool_call.error_message = str(exc)
@@ -224,6 +316,8 @@ class ToolGatewayService:
             raise
 
     def to_response(self, tool_call: ToolCall) -> ToolCallResponse:
+        candidate_events = tool_call.__dict__.get("candidate_events") or []
+        approval_decisions = tool_call.__dict__.get("approval_decisions") or []
         return ToolCallResponse(
             id=tool_call.id,
             created_at=tool_call.created_at,
@@ -237,8 +331,14 @@ class ToolGatewayService:
             approval_reason=tool_call.approval_reason,
             result_json=tool_call.result_json,
             error_message=tool_call.error_message,
-            candidate_events=[CandidateEventResponse.model_validate(event) for event in tool_call.candidate_events],
+            candidate_events=[CandidateEventResponse.model_validate(event) for event in candidate_events],
             approval_decisions=[
-                ToolApprovalDecisionResponse.model_validate(decision) for decision in tool_call.approval_decisions
+                ToolApprovalDecisionResponse.model_validate(decision) for decision in approval_decisions
             ],
         )
+
+    def _optional_text(self, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None

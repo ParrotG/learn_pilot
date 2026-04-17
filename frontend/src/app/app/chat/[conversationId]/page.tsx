@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { startTransition, useCallback, useEffect, useState } from "react";
 
+import { ArtifactList } from "@/components/chat/artifact-list";
 import { ChatComposer } from "@/components/chat/chat-composer";
 import { MessageTimeline } from "@/components/chat/message-timeline";
 import { SessionNotePanel } from "@/components/chat/session-note-panel";
@@ -13,12 +14,22 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SectionHeading } from "@/components/ui/section-heading";
-import { conversationsApi, messagesApi, notesApi, runsApi, toolCallsApi, workspaceApi } from "@/lib/api";
+import {
+  conversationsApi,
+  driveApi,
+  exportsApi,
+  messagesApi,
+  notesApi,
+  runsApi,
+  toolCallsApi,
+  workspaceApi,
+} from "@/lib/api";
 import type {
   ApiError,
   AssistantRun,
   ConversationDetail,
   ConversationDocument,
+  ExportArtifact,
   Message,
   SessionNote,
   ToolCall,
@@ -35,27 +46,31 @@ export default function ConversationPage() {
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [documents, setDocuments] = useState<ConversationDocument[]>([]);
+  const [artifacts, setArtifacts] = useState<ExportArtifact[]>([]);
   const [activeRun, setActiveRun] = useState<AssistantRun | null>(null);
   const [sessionNote, setSessionNote] = useState<SessionNote | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<ToolCall | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDocs, setShowDocs] = useState(false);
+  const [artifactActionId, setArtifactActionId] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
 
   const loadConversationData = useCallback(async () => {
     if (!token) {
       return;
     }
-    const [detail, messageList, documentList, note] = await Promise.all([
+    const [detail, messageList, documentList, note, artifactList] = await Promise.all([
       conversationsApi.detail(token, conversationId),
       messagesApi.list(token, conversationId),
       workspaceApi.listDocuments(token, conversationId),
       notesApi.getForConversation(token, conversationId),
+      exportsApi.listForConversation(token, conversationId),
     ]);
     startTransition(() => {
       setConversation(detail);
       setMessages(messageList);
       setDocuments(documentList);
+      setArtifacts(artifactList);
       setActiveRun(detail.latest_run);
       setSessionNote(note);
       setPendingToolCall(detail.pending_tool_call);
@@ -151,6 +166,41 @@ export default function ConversationPage() {
     });
   }
 
+  async function handleDownloadArtifact(artifact: ExportArtifact) {
+    if (!token) {
+      return;
+    }
+    setArtifactActionId(artifact.id);
+    try {
+      const blob = await exportsApi.download(token, artifact.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = artifact.filename;
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } finally {
+      setArtifactActionId(null);
+    }
+  }
+
+  async function handleUploadArtifactToDrive(artifact: ExportArtifact) {
+    if (!token) {
+      return;
+    }
+    setArtifactActionId(artifact.id);
+    try {
+      const response = await driveApi.requestUploadArtifact(token, artifact.id);
+      startTransition(() => {
+        setPendingToolCall(response.tool_call);
+        setActiveRun(response.assistant_run);
+      });
+      await loadConversationData();
+    } finally {
+      setArtifactActionId(null);
+    }
+  }
+
   if (loading) {
     return <LoadingState label="Loading conversation..." />;
   }
@@ -215,7 +265,15 @@ export default function ConversationPage() {
           </div>
         </div>
         <div className="xl:sticky xl:top-6 xl:self-start">
-          <SessionNotePanel note={sessionNote} />
+          <div className="space-y-4">
+            <SessionNotePanel note={sessionNote} />
+            <ArtifactList
+              artifacts={artifacts}
+              onDownload={handleDownloadArtifact}
+              onUploadToDrive={handleUploadArtifactToDrive}
+              busyArtifactId={artifactActionId}
+            />
+          </div>
         </div>
       </div>
     </div>

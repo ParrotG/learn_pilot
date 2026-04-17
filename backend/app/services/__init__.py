@@ -6,6 +6,7 @@ from app.services.conversation_service import ConversationService
 from app.services.credential_service import CredentialService
 from app.services.document_service import DocumentService
 from app.services.drive_service import DriveService
+from app.services.export_service import ExportService
 from app.services.factory import ServiceBundle, build_services
 from app.services.intent_service import IntentService
 from app.services.message_service import MessageService
@@ -23,6 +24,7 @@ __all__ = [
     "CredentialService",
     "DocumentService",
     "DriveService",
+    "ExportService",
     "IntentService",
     "MessageService",
     "NoteService",

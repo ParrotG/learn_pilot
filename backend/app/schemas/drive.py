@@ -13,3 +13,6 @@ class DriveArchiveResponse(BaseModel):
     drive_folder_id: str | None
     archived: bool
 
+
+class DriveArtifactUploadRequest(BaseModel):
+    artifact_id: str

@@ -94,6 +94,8 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4.1-mini
 
 UPLOAD_DIR=data/uploads
+EXPORT_DIR=data/exports
+PANDOC_BINARY=pandoc
 
 GOOGLE_OAUTH_CLIENT_ID=your-google-client-id
 GOOGLE_OAUTH_CLIENT_SECRET=your-google-client-secret
@@ -236,6 +238,18 @@ uv sync
 cd backend
 uv run alembic upgrade head
 ```
+
+### 2.5 Install Pandoc for note export
+
+LearnPilot now exports session notes to `docx` and `pptx` through `pandoc`. Install it in WSL/Linux before testing export:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y pandoc
+pandoc --version
+```
+
+If `pandoc` is installed in a non-default location, set `PANDOC_BINARY` in `backend/.env`. Exported files are written to `EXPORT_DIR`, which must be writable by the backend process.
 
 ### 3. Start the backend server
 

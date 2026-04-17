@@ -9,6 +9,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.conversation import Conversation
+    from app.models.export_artifact import ExportArtifact
     from app.models.session_note_revision import SessionNoteRevision
     from app.models.user import User
 
@@ -32,4 +33,9 @@ class SessionNote(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="note",
         cascade="all, delete-orphan",
         order_by="SessionNoteRevision.created_at",
+    )
+    export_artifacts: Mapped[list["ExportArtifact"]] = relationship(
+        back_populates="note",
+        cascade="all, delete-orphan",
+        order_by="ExportArtifact.created_at.desc()",
     )
