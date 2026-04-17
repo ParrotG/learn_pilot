@@ -64,3 +64,37 @@ class OpenAIStructuredClient:
         except json.JSONDecodeError as exc:
             raise ExternalServiceError("OpenAI response was not valid JSON.", details=content) from exc
         return content
+
+    async def generate_markdown_reply(
+        self,
+        *,
+        api_key: str,
+        system_prompt: str,
+        conversation_messages: list[dict[str, str]],
+        additional_context: dict[str, object] | None = None,
+    ) -> str:
+        client = AsyncOpenAI(api_key=api_key, base_url=self.settings.openai_base_url)
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        if additional_context:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": f"Additional context:\n{json.dumps(additional_context, ensure_ascii=False)}",
+                }
+            )
+        messages.extend(conversation_messages)
+        try:
+            response = await client.chat.completions.create(
+                model=self.settings.openai_model,
+                temperature=0.2,
+                messages=messages,
+            )
+        except Exception as exc:  # pragma: no cover - external client errors vary
+            raise ExternalServiceError("OpenAI request failed.", details=str(exc)) from exc
+        finally:
+            await client.close()
+
+        content = response.choices[0].message.content
+        if not content:
+            raise ExternalServiceError("OpenAI returned an empty response.")
+        return content.strip()

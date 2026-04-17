@@ -1,12 +1,17 @@
 import type {
   AnalysisSummary,
+  AssistantRun,
   ApiError,
   AssistantAction,
   CalendarRecord,
+  Conversation,
+  ConversationDetail,
+  ConversationDocument,
   CredentialStatus,
   DocumentDetail,
   DocumentListItem,
   DriveArchiveStatus,
+  Message,
   Note,
   TokenResponse,
   User,
@@ -166,6 +171,78 @@ export const assistantApi = {
       token,
       body: payload,
     });
+  },
+};
+
+export const conversationsApi = {
+  list(token: string) {
+    return apiRequest<Conversation[]>("/conversations", { token });
+  },
+  create(token: string, payload: { title?: string | null }) {
+    return apiRequest<Conversation>("/conversations", {
+      method: "POST",
+      token,
+      body: payload,
+    });
+  },
+  detail(token: string, conversationId: string) {
+    return apiRequest<ConversationDetail>(`/conversations/${conversationId}`, { token });
+  },
+};
+
+export const messagesApi = {
+  list(token: string, conversationId: string) {
+    return apiRequest<Message[]>(`/conversations/${conversationId}/messages`, { token });
+  },
+  create(
+    token: string,
+    conversationId: string,
+    payload: {
+      content: string;
+      attachment_document_ids?: string[];
+      auto_create_run?: boolean;
+    },
+  ) {
+    return apiRequest<{ message: Message; assistant_run: AssistantRun | null }>(
+      `/conversations/${conversationId}/messages`,
+      {
+        method: "POST",
+        token,
+        body: payload,
+      },
+    );
+  },
+};
+
+export const workspaceApi = {
+  listDocuments(token: string, conversationId: string) {
+    return apiRequest<ConversationDocument[]>(`/conversations/${conversationId}/documents`, { token });
+  },
+  uploadDocument(token: string, conversationId: string, file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return apiRequest<{
+      document: DocumentListItem;
+      conversation_document: ConversationDocument;
+      system_message: Message;
+    }>(`/conversations/${conversationId}/documents`, {
+      method: "POST",
+      token,
+      body: formData,
+    });
+  },
+};
+
+export const runsApi = {
+  create(token: string, conversationId: string, payload: { message_id?: string }) {
+    return apiRequest<{ assistant_run: AssistantRun }>(`/conversations/${conversationId}/runs`, {
+      method: "POST",
+      token,
+      body: payload,
+    });
+  },
+  get(token: string, runId: string) {
+    return apiRequest<AssistantRun>(`/runs/${runId}`, { token });
   },
 };
 

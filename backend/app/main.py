@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+import app.models  # noqa: F401
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
@@ -50,4 +51,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-

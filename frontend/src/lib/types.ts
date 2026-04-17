@@ -53,6 +53,60 @@ export type AnalysisRun = {
   updated_at: string;
 };
 
+export type AssistantRun = {
+  id: string;
+  conversation_id: string;
+  message_id: string;
+  user_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  trace: Record<string, unknown>;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Conversation = {
+  id: string;
+  user_id: string;
+  title: string;
+  status: "active" | "archived";
+  last_message_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ConversationDetail = Conversation & {
+  latest_run: AssistantRun | null;
+};
+
+export type MessageAttachmentReference = {
+  id: string;
+  filename: string;
+  processing_status: string;
+};
+
+export type Message = {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content_markdown: string;
+  status: "complete" | "error";
+  attachments: MessageAttachmentReference[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ConversationDocument = {
+  id: string;
+  conversation_id: string;
+  document_id: string;
+  attached_by_message_id: string | null;
+  document: DocumentListItem;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Note = {
   id: string;
   user_id: string;

@@ -10,6 +10,8 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 if TYPE_CHECKING:
     from app.models.analysis_run import AnalysisRun
     from app.models.candidate_event import CandidateEvent
+    from app.models.conversation_document import ConversationDocument
+    from app.models.message_attachment import MessageAttachment
     from app.models.note import Note
     from app.models.user import User
 
@@ -37,4 +39,9 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     analysis_runs: Mapped[list["AnalysisRun"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
-
+    conversations: Mapped[list["ConversationDocument"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+    message_attachments: Mapped[list["MessageAttachment"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )

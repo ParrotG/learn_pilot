@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 const navigation = [
   { href: "/app", label: "Dashboard" },
+  { href: "/app/chat", label: "Chat" },
   { href: "/app/settings", label: "Settings" },
 ];
 
@@ -39,7 +40,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <nav className="grid gap-2">
             {navigation.map((item) => {
-              const active = pathname === item.href;
+              const active =
+                item.href === "/app" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
                 <Link
                   key={item.href}
@@ -79,7 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   className={cn(
                     "rounded-full px-4 py-2 text-sm",
-                    pathname === item.href
+                    (item.href === "/app" ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`))
                       ? "bg-[var(--primary)] text-white"
                       : "bg-white/70 text-[var(--muted-foreground)]",
                   )}

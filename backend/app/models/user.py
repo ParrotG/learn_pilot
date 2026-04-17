@@ -9,9 +9,12 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.analysis_run import AnalysisRun
+    from app.models.assistant_run import AssistantRun
     from app.models.calendar_record import CalendarRecord
     from app.models.candidate_event import CandidateEvent
+    from app.models.conversation import Conversation
     from app.models.document import Document
+    from app.models.message import Message
     from app.models.note import Note
     from app.models.user_credential import UserCredential
 
@@ -37,4 +40,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     analysis_runs: Mapped[list["AnalysisRun"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-
+    conversations: Mapped[list["Conversation"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    messages: Mapped[list["Message"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    assistant_runs: Mapped[list["AssistantRun"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )

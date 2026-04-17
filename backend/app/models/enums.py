@@ -35,3 +35,26 @@ class AnalysisRunStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+
+class ConversationStatus(StrEnum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class MessageRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+    TOOL = "tool"
+
+
+class MessageStatus(StrEnum):
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
+class AssistantRunExecutionStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"

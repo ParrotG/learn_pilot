@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import asyncio
 
 import pytest
 from httpx import AsyncClient
@@ -237,3 +238,84 @@ async def test_google_oauth_flow_persists_and_reuses_pkce_verifier(
     assert credential.google_account_email == "student@gmail.com"
     assert credential.google_oauth_pending_state is None
     assert credential.google_oauth_code_verifier_encrypted is None
+
+
+@pytest.mark.asyncio
+async def test_conversation_message_and_run_flow(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_validate_api_key(self, api_key: str) -> None:
+        return None
+
+    async def fake_generate_markdown_reply(
+        self,
+        *,
+        api_key: str,
+        system_prompt: str,
+        conversation_messages: list[dict[str, str]],
+        additional_context: dict[str, object] | None = None,
+    ) -> str:
+        assert api_key == "sk-test-chat-123"
+        assert any(message["role"] == "user" for message in conversation_messages)
+        return "## Study Summary\n\n- This is the generated assistant reply."
+
+    monkeypatch.setattr(OpenAIStructuredClient, "validate_api_key", fake_validate_api_key)
+    monkeypatch.setattr(OpenAIStructuredClient, "generate_markdown_reply", fake_generate_markdown_reply)
+
+    llm_response = await client.post(
+        "/api/credentials/llm",
+        headers=auth_headers,
+        json={"provider": "openai", "api_key": "sk-test-chat-123"},
+    )
+    assert llm_response.status_code == 200
+
+    conversation_response = await client.post("/api/conversations", headers=auth_headers, json={})
+    assert conversation_response.status_code == 200
+    conversation_id = conversation_response.json()["id"]
+
+    upload_response = await client.post(
+        f"/api/conversations/{conversation_id}/documents",
+        headers=auth_headers,
+        files={"file": ("syllabus.pdf", build_pdf_bytes("Exam date is 2026-06-01."), "application/pdf")},
+    )
+    assert upload_response.status_code == 201
+    document_id = upload_response.json()["document"]["id"]
+
+    message_response = await client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+        json={"content": "Please summarize the attached syllabus."},
+    )
+    assert message_response.status_code == 200
+    run = message_response.json()["assistant_run"]
+    assert run is not None
+    run_id = run["id"]
+
+    for _ in range(5):
+        run_response = await client.get(f"/api/runs/{run_id}", headers=auth_headers)
+        assert run_response.status_code == 200
+        if run_response.json()["status"] in {"completed", "failed"}:
+            break
+        await asyncio.sleep(0.05)
+    assert run_response.json()["status"] == "completed"
+
+    messages_response = await client.get(
+        f"/api/conversations/{conversation_id}/messages",
+        headers=auth_headers,
+    )
+    assert messages_response.status_code == 200
+    messages = messages_response.json()
+    assert len(messages) >= 3
+    assert any(message["role"] == "assistant" for message in messages)
+    assert any("Study Summary" in message["content_markdown"] for message in messages if message["role"] == "assistant")
+
+    documents_response = await client.get(
+        f"/api/conversations/{conversation_id}/documents",
+        headers=auth_headers,
+    )
+    assert documents_response.status_code == 200
+    documents = documents_response.json()
+    assert len(documents) == 1
+    assert documents[0]["document"]["id"] == document_id

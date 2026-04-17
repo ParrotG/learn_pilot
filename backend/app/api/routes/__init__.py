@@ -1,4 +1,27 @@
-from app.api.routes import assistant, auth, calendar, credentials, documents, drive, notes
+from app.api.routes import (
+    assistant,
+    auth,
+    calendar,
+    conversations,
+    credentials,
+    documents,
+    drive,
+    messages,
+    notes,
+    runs,
+    workspace,
+)
 
-__all__ = ["assistant", "auth", "calendar", "credentials", "documents", "drive", "notes"]
-
+__all__ = [
+    "assistant",
+    "auth",
+    "calendar",
+    "conversations",
+    "credentials",
+    "documents",
+    "drive",
+    "messages",
+    "notes",
+    "runs",
+    "workspace",
+]
