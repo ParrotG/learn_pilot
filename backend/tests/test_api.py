@@ -16,6 +16,7 @@ from app.models.session_note import SessionNote
 from app.models.user_credential import UserCredential
 from app.integrations.openai_client import OpenAIStructuredClient
 from app.schemas.domain import GeneratedNote, IntentResult
+from app.services.assistant_runtime_service import AssistantRuntimeService
 from app.services.calendar_service import CalendarService
 from app.services.intent_service import IntentService
 from app.services.note_service import NoteService
@@ -620,3 +621,64 @@ async def test_delete_conversation_removes_it_from_the_workspace(
         select(Conversation).where(Conversation.id == conversation_id)
     )
     assert conversation_result.scalar_one_or_none() is None
+
+
+def test_calendar_normalize_datetime_accepts_ordinal_month_names() -> None:
+    calendar_service = CalendarService(llm_client=None, credential_service=None)
+
+    parsed, year_defaulted = calendar_service.normalize_datetime(
+        "April 17th, 2025",
+        default_year=2026,
+    )
+
+    assert parsed == datetime(2025, 4, 17, tzinfo=UTC)
+    assert year_defaulted is False
+
+
+def test_calendar_normalize_datetime_defaults_missing_year_to_current_year() -> None:
+    calendar_service = CalendarService(llm_client=None, credential_service=None)
+
+    parsed, year_defaulted = calendar_service.normalize_datetime(
+        "April 17th",
+        default_year=2026,
+    )
+
+    assert parsed == datetime(2026, 4, 17, tzinfo=UTC)
+    assert year_defaulted is True
+
+
+def test_calendar_event_body_includes_timezone_for_google_api() -> None:
+    calendar_service = CalendarService(llm_client=None, credential_service=None)
+    event = CandidateEvent(
+        user_id="user-1",
+        title="Project milestone",
+        start_time=datetime(2026, 4, 17, 18, 0),
+        end_time=datetime(2026, 4, 17, 19, 0),
+        status=CandidateEventStatus.PENDING.value,
+    )
+
+    body = calendar_service._build_calendar_event_body(event)
+
+    assert body["start"]["timeZone"] == "UTC"
+    assert body["end"]["timeZone"] == "UTC"
+    assert body["start"]["dateTime"].endswith("+00:00")
+    assert body["end"]["dateTime"].endswith("+00:00")
+
+
+def test_assistant_runtime_document_excerpt_keeps_document_tail_when_truncated() -> None:
+    runtime_service = AssistantRuntimeService(
+        llm_client=None,
+        credential_service=None,
+        conversation_service=None,
+        message_service=None,
+        session_note_service=None,
+        tool_gateway_service=None,
+    )
+    text = ("A" * 7000) + ("B" * 7000)
+
+    excerpt = runtime_service._build_document_excerpt(text)
+
+    assert len(excerpt) > 12000
+    assert "A" * 200 in excerpt
+    assert "B" * 200 in excerpt
+    assert "[... omitted middle section ...]" in excerpt

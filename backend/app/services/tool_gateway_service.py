@@ -202,19 +202,26 @@ class ToolGatewayService:
         tool_call.status = ToolCallStatus.RUNNING.value
         await session.flush()
 
-        records = await self.calendar_service.create_calendar_events(
-            session,
-            user_id=user_id,
-            candidate_event_ids=[event.id for event in tool_call.candidate_events],
-            settings=settings,
-        )
-        tool_call.status = ToolCallStatus.COMPLETED.value
-        tool_call.result_json = {
-            "candidate_event_ids": [event.id for event in tool_call.candidate_events],
-            "calendar_record_ids": [record.id for record in records],
-        }
-        await session.flush()
-        return tool_call.result_json
+        try:
+            records = await self.calendar_service.create_calendar_events(
+                session,
+                user_id=user_id,
+                candidate_event_ids=[event.id for event in tool_call.candidate_events],
+                settings=settings,
+            )
+            tool_call.status = ToolCallStatus.COMPLETED.value
+            tool_call.error_message = None
+            tool_call.result_json = {
+                "candidate_event_ids": [event.id for event in tool_call.candidate_events],
+                "calendar_record_ids": [record.id for record in records],
+            }
+            await session.flush()
+            return tool_call.result_json
+        except Exception as exc:
+            tool_call.status = ToolCallStatus.FAILED.value
+            tool_call.error_message = str(exc)
+            await session.flush()
+            raise
 
     def to_response(self, tool_call: ToolCall) -> ToolCallResponse:
         return ToolCallResponse(

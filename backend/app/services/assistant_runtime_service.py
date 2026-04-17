@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
@@ -49,6 +50,12 @@ Rules:
 - Use assistant_reply for normal Q&A or lightweight guidance.
 - For patch_note, arguments must contain title, full_markdown, and change_summary.
 - For create_calendar_event, arguments must contain events, where each event includes title and start_text, and may include end_text, description, location, source_excerpt, and source_document_id.
+- For create_calendar_event, prefer machine-friendly date strings:
+  - `YYYY-MM-DD`
+  - `YYYY-MM-DD HH:MM`
+  - full ISO 8601 is also allowed
+- If the source does not explicitly include a year, use the current_year from the provided context.
+- Do not invent a different year when the year is unknown.
 - If calendar creation is requested, extract the relevant events from the conversation and attached documents.
 """.strip()
 
@@ -67,6 +74,11 @@ Write a concise Markdown reply for the user after a tool step has completed or b
 Summarize what happened, what was updated or created, and any important caveats.
 Do not expose raw JSON or internal fields.
 """.strip()
+
+DOCUMENT_EXCERPT_MAX_CHARS = 12000
+DOCUMENT_EXCERPT_HEAD_CHARS = 6000
+DOCUMENT_EXCERPT_TAIL_CHARS = 6000
+DOCUMENT_EXCERPT_GAP_MARKER = "\n\n[... omitted middle section ...]\n\n"
 
 
 class ToolRequestPayload(BaseModel):
@@ -416,6 +428,8 @@ class AssistantRuntimeService:
             "conversation_messages": self._serialize_messages_for_llm(messages[-12:]),
             "documents_considered": document_context["documents_considered"],
             "documents": document_context["documents"],
+            "current_year": datetime.now(UTC).year,
+            "current_date": datetime.now(UTC).date().isoformat(),
             "session_note": {
                 "title": session_note.title,
                 "current_markdown": session_note.current_markdown,
@@ -447,11 +461,13 @@ class AssistantRuntimeService:
 
         excerpts = []
         for document in attached_documents[:3]:
+            excerpt = self._build_document_excerpt(document.extracted_text or "")
             excerpts.append(
                 {
                     "id": document.id,
                     "filename": document.filename,
-                    "excerpt": (document.extracted_text or "")[:4000],
+                    "text_length": len(document.extracted_text or ""),
+                    "excerpt": excerpt,
                 }
             )
         return {
@@ -642,3 +658,10 @@ class AssistantRuntimeService:
                 if isinstance(candidate, str) and candidate.strip():
                     return candidate.strip()
         return str(value).strip()
+
+    def _build_document_excerpt(self, text: str) -> str:
+        if len(text) <= DOCUMENT_EXCERPT_MAX_CHARS:
+            return text
+        head = text[:DOCUMENT_EXCERPT_HEAD_CHARS].rstrip()
+        tail = text[-DOCUMENT_EXCERPT_TAIL_CHARS :].lstrip()
+        return f"{head}{DOCUMENT_EXCERPT_GAP_MARKER}{tail}"

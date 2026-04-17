@@ -206,13 +206,7 @@ class CalendarService:
         records: list[CalendarRecord] = []
         for event in events:
             event.status = CandidateEventStatus.APPROVED.value
-            body = {
-                "summary": event.title,
-                "description": event.description,
-                "location": event.location,
-                "start": {"dateTime": event.start_time.isoformat()},
-                "end": {"dateTime": (event.end_time or event.start_time).isoformat()},
-            }
+            body = self._build_calendar_event_body(event)
             try:
                 created = calendar_service.events().insert(calendarId="primary", body=body).execute()
             except Exception as exc:  # pragma: no cover - external client errors vary
@@ -229,6 +223,13 @@ class CalendarService:
             )
             session.add(record)
             records.append(record)
+
+        if not records and events:
+            first_error = next((event.error_message for event in events if event.error_message), None)
+            raise ExternalServiceError(
+                "Google Calendar rejected the event creation request.",
+                details=first_error or "No calendar records were created.",
+            )
 
         await session.flush()
         return records
@@ -272,9 +273,10 @@ class CalendarService:
         text = value.strip()
         if not text:
             raise BadRequestError("Event date text cannot be empty.")
+        normalized_text = self._normalize_date_text(text)
 
         try:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(normalized_text.replace("Z", "+00:00"))
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=UTC)
             return parsed, False
@@ -283,19 +285,19 @@ class CalendarService:
 
         for fmt in _DATE_FORMATS_WITH_YEAR:
             try:
-                parsed = datetime.strptime(text, fmt).replace(tzinfo=UTC)
+                parsed = datetime.strptime(normalized_text, fmt).replace(tzinfo=UTC)
                 return parsed, False
             except ValueError:
                 continue
 
         for fmt in _DATE_FORMATS_WITHOUT_YEAR:
             try:
-                parsed = datetime.strptime(text, fmt).replace(year=default_year, tzinfo=UTC)
+                parsed = datetime.strptime(normalized_text, fmt).replace(year=default_year, tzinfo=UTC)
                 return parsed, True
             except ValueError:
                 continue
 
-        month_day_match = re.fullmatch(r"(?P<month>\d{1,2})-(?P<day>\d{1,2})", text)
+        month_day_match = re.fullmatch(r"(?P<month>\d{1,2})-(?P<day>\d{1,2})", normalized_text)
         if month_day_match:
             parsed = datetime(
                 default_year,
@@ -315,3 +317,32 @@ class CalendarService:
             return None
         text = str(value).strip()
         return text or None
+
+    def _normalize_date_text(self, value: str) -> str:
+        text = value.strip()
+        text = re.sub(r"(?<=\d)(st|nd|rd|th)\b", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*,\s*", " ", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+    def _build_calendar_event_body(self, event: CandidateEvent) -> dict[str, object]:
+        start_time = self._ensure_utc(event.start_time)
+        end_time = self._ensure_utc(event.end_time or event.start_time)
+        return {
+            "summary": event.title,
+            "description": event.description,
+            "location": event.location,
+            "start": {
+                "dateTime": start_time.isoformat(),
+                "timeZone": "UTC",
+            },
+            "end": {
+                "dateTime": end_time.isoformat(),
+                "timeZone": "UTC",
+            },
+        }
+
+    def _ensure_utc(self, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
