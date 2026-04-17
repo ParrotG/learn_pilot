@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from app.api.router import api_router
+from app.core.config import Settings, get_settings
+from app.core.errors import AppError
+from app.db.session import configure_database
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
+    configure_database(settings.database_url)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        settings.resolved_upload_dir.mkdir(parents=True, exist_ok=True)
+        yield
+
+    app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    app.include_router(api_router)
+
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok", "app_name": settings.app_name}
+
+    @app.exception_handler(AppError)
+    async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"code": exc.code, "message": exc.message, "details": exc.details},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "code": "validation_error",
+                "message": "Request validation failed.",
+                "details": exc.errors(),
+            },
+        )
+
+    return app
+
+
+app = create_app()
+
