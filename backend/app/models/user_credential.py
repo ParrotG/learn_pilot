@@ -22,6 +22,7 @@ class UserCredential(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     google_refresh_token_encrypted: Mapped[str | None] = mapped_column(String, nullable=True)
     google_token_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     google_account_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    google_oauth_pending_state: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    google_oauth_code_verifier_encrypted: Mapped[str | None] = mapped_column(String, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="credential")
-

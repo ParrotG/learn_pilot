@@ -32,7 +32,10 @@ async function proxyRequest(
   }
 
   const normalizedBase = backendBaseUrl.replace(/\/+$/, "");
-  const targetUrl = new URL(`${normalizedBase}/${path.join("/")}`);
+  const backendApiBase = normalizedBase.endsWith("/api")
+    ? normalizedBase
+    : `${normalizedBase}/api`;
+  const targetUrl = new URL(`${backendApiBase}/${path.join("/")}`);
   request.nextUrl.searchParams.forEach((value, key) => {
     targetUrl.searchParams.append(key, value);
   });

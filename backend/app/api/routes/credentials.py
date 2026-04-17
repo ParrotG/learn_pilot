@@ -35,9 +35,14 @@ async def save_llm_credential(
 @router.post("/google/connect", response_model=GoogleConnectResponse)
 async def google_connect(
     current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
 ) -> GoogleConnectResponse:
-    return credential_service.build_google_connect_response(user_id=current_user.id, settings=settings)
+    return await credential_service.build_google_connect_response(
+        session,
+        user_id=current_user.id,
+        settings=settings,
+    )
 
 
 @router.get("/google/callback", response_model=GoogleCallbackResponse)
@@ -61,4 +66,3 @@ async def credential_status(
     session: AsyncSession = Depends(get_db_session),
 ) -> CredentialStatusResponse:
     return await credential_service.get_status(session, user_id=current_user.id)
-

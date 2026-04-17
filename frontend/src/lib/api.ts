@@ -63,7 +63,10 @@ export async function apiRequest<T>(
       ? payload
       : {
           code: "request_failed",
-          message: typeof payload === "string" ? payload : "Request failed.",
+          message:
+            typeof payload === "string" && payload.trim().length > 0
+              ? payload
+              : "The request could not be completed. Please try again.",
         }) as ApiError;
     throw error;
   }

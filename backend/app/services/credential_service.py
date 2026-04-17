@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.errors import ExternalConfigurationError
+from app.core.errors import ExternalConfigurationError, UnauthorizedError
 from app.core.security import create_signed_state, decrypt_value, encrypt_value, verify_signed_state
 from app.integrations.google import build_google_flow, fetch_google_account_email
 from app.models.user_credential import UserCredential
@@ -58,7 +58,14 @@ class CredentialService:
             )
         return self._to_status(credential)
 
-    def build_google_connect_response(self, *, user_id: str, settings: Settings) -> GoogleConnectResponse:
+    async def build_google_connect_response(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: str,
+        settings: Settings,
+    ) -> GoogleConnectResponse:
+        credential = await self.get_or_create(session, user_id)
         state = create_signed_state(user_id=user_id, settings=settings)
         flow = build_google_flow(settings, state=state)
         authorization_url, _ = flow.authorization_url(
@@ -66,6 +73,11 @@ class CredentialService:
             include_granted_scopes="true",
             prompt="consent",
         )
+        if not flow.code_verifier:
+            raise ExternalConfigurationError("Failed to initialize the Google OAuth PKCE verifier.")
+        credential.google_oauth_pending_state = state
+        credential.google_oauth_code_verifier_encrypted = encrypt_value(flow.code_verifier, settings)
+        await session.commit()
         return GoogleConnectResponse(authorization_url=authorization_url)
 
     async def handle_google_callback(
@@ -77,7 +89,16 @@ class CredentialService:
         settings: Settings,
     ) -> GoogleCallbackResponse:
         user_id = verify_signed_state(state, settings)
-        flow = build_google_flow(settings, state=state)
+        credential = await self.get_optional(session, user_id)
+        if (
+            credential is None
+            or credential.google_oauth_pending_state != state
+            or not credential.google_oauth_code_verifier_encrypted
+        ):
+            raise UnauthorizedError("The Google OAuth session is missing or no longer valid. Please reconnect.")
+
+        code_verifier = decrypt_value(credential.google_oauth_code_verifier_encrypted, settings)
+        flow = build_google_flow(settings, state=state, code_verifier=code_verifier)
         try:
             flow.fetch_token(code=code)
         except Exception as exc:  # pragma: no cover - external client errors vary
@@ -86,13 +107,14 @@ class CredentialService:
         credentials = flow.credentials
         email = await fetch_google_account_email(credentials.token)
 
-        credential = await self.get_or_create(session, user_id)
         credential.google_access_token_encrypted = encrypt_value(credentials.token, settings)
         credential.google_refresh_token_encrypted = (
             encrypt_value(credentials.refresh_token, settings) if credentials.refresh_token else None
         )
         credential.google_token_expiry = credentials.expiry
         credential.google_account_email = email
+        credential.google_oauth_pending_state = None
+        credential.google_oauth_code_verifier_encrypted = None
         await session.commit()
         return GoogleCallbackResponse(google_connected=True, google_account_email=email)
 

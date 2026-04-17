@@ -4,10 +4,12 @@ from datetime import UTC, datetime
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate_event import CandidateEvent
 from app.models.enums import AssistantAction, CandidateEventStatus
+from app.models.user_credential import UserCredential
 from app.schemas.domain import GeneratedNote, IntentResult
 from app.services.calendar_service import CalendarService
 from app.services.intent_service import IntentService
@@ -164,3 +166,69 @@ async def test_upload_and_analyze_document_flow(
         "Submit before the deadline.",
     ]
     assert detail_body["candidate_events"][0]["title"] == "Assignment Deadline"
+
+
+@pytest.mark.asyncio
+async def test_google_oauth_flow_persists_and_reuses_pkce_verifier(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeCredentials:
+        def __init__(self) -> None:
+            self.token = "google-access-token"
+            self.refresh_token = "google-refresh-token"
+            self.expiry = datetime(2026, 5, 1, 18, 0, tzinfo=UTC)
+
+    class FakeFlow:
+        def __init__(self, state: str | None, code_verifier: str | None = None) -> None:
+            self.state = state
+            self.code_verifier = code_verifier
+            self.credentials = FakeCredentials()
+
+        def authorization_url(self, **kwargs):
+            self.code_verifier = self.code_verifier or "pkce-verifier-123"
+            return f"https://accounts.google.com/o/oauth2/auth?state={self.state}", self.state
+
+        def fetch_token(self, **kwargs):
+            assert kwargs["code"] == "auth-code"
+            assert self.code_verifier == "pkce-verifier-123"
+            return {"access_token": self.credentials.token}
+
+    def fake_build_google_flow(settings, *, state=None, code_verifier=None):
+        return FakeFlow(state=state, code_verifier=code_verifier)
+
+    async def fake_fetch_google_account_email(access_token: str):
+        assert access_token == "google-access-token"
+        return "student@gmail.com"
+
+    monkeypatch.setattr("app.services.credential_service.build_google_flow", fake_build_google_flow)
+    monkeypatch.setattr(
+        "app.services.credential_service.fetch_google_account_email",
+        fake_fetch_google_account_email,
+    )
+
+    connect_response = await client.post("/api/credentials/google/connect", headers=auth_headers)
+    assert connect_response.status_code == 200
+    authorization_url = connect_response.json()["authorization_url"]
+    assert "state=" in authorization_url
+    state = authorization_url.split("state=", maxsplit=1)[1]
+
+    credential_result = await db_session.execute(select(UserCredential))
+    credential = credential_result.scalar_one()
+    assert credential.google_oauth_pending_state == state
+    assert credential.google_oauth_code_verifier_encrypted is not None
+
+    callback_response = await client.get(
+        "/api/credentials/google/callback",
+        params={"state": state, "code": "auth-code"},
+    )
+    assert callback_response.status_code == 200
+    assert callback_response.json()["google_connected"] is True
+    assert callback_response.json()["google_account_email"] == "student@gmail.com"
+
+    await db_session.refresh(credential)
+    assert credential.google_account_email == "student@gmail.com"
+    assert credential.google_oauth_pending_state is None
+    assert credential.google_oauth_code_verifier_encrypted is None

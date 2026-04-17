@@ -141,7 +141,7 @@ cp .env.example .env.local
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-This must point to the running FastAPI backend.
+This should point to the running FastAPI backend origin. The frontend proxy will automatically forward requests to the backend API namespace, so `http://localhost:8000` is the recommended value. `http://localhost:8000/api` is also accepted for compatibility.
 
 ## External Service Setup
 
@@ -199,6 +199,7 @@ Setup steps:
 4. Configure the OAuth consent screen.
    - For local development, `External` is usually the easiest choice.
    - Add your Google account to the test users list if the app is still in testing mode.
+   - In Google Auth Platform > Audience, either publish the app or explicitly add your Google account as a test user before trying to connect LearnPilot.
 5. Create OAuth credentials.
    - Choose **Web application**.
    - Add this exact redirect URI:
@@ -211,6 +212,7 @@ Setup steps:
 Important note:
 
 - `GOOGLE_OAUTH_REDIRECT_URI` in your `.env` must exactly match the redirect URI configured in Google Cloud Console.
+- If the app is not published yet, only users listed in Google Auth Platform > Audience > Test users will be able to complete the OAuth flow.
 
 Useful references:
 

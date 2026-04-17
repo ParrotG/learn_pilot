@@ -33,8 +33,18 @@ def get_google_client_config(settings: Settings) -> dict[str, Any]:
     }
 
 
-def build_google_flow(settings: Settings, *, state: str | None = None) -> Flow:
-    flow = Flow.from_client_config(get_google_client_config(settings), scopes=settings.google_oauth_scopes, state=state)
+def build_google_flow(
+    settings: Settings,
+    *,
+    state: str | None = None,
+    code_verifier: str | None = None,
+) -> Flow:
+    flow = Flow.from_client_config(
+        get_google_client_config(settings),
+        scopes=settings.google_oauth_scopes,
+        state=state,
+        code_verifier=code_verifier,
+    )
     flow.redirect_uri = settings.google_oauth_redirect_uri
     return flow
 
@@ -123,4 +133,3 @@ def upload_file_to_drive(
         return uploaded["id"]
     except Exception as exc:  # pragma: no cover - external client errors vary
         raise ExternalServiceError("Failed to upload the file to Google Drive.", details=str(exc)) from exc
-
