@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import type { ChangeEvent } from "react";
+import { useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import type { ApiError, DocumentListItem } from "@/lib/types";
 
@@ -11,25 +12,26 @@ export function UploadCard({
 }: {
   onUpload: (file: File) => Promise<DocumentListItem>;
 }) {
-  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  async function handleUpload() {
-    if (!file) {
-      setMessage("Choose a PDF before uploading.");
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0] ?? null;
+    if (!selectedFile) {
       return;
     }
 
+    setSelectedFileName(selectedFile.name);
     setLoading(true);
     setMessage(null);
     try {
-      const uploaded = await onUpload(file);
+      const uploaded = await onUpload(selectedFile);
       setMessage(`Uploaded ${uploaded.filename} successfully.`);
-      setFile(null);
-      const input = document.getElementById("document-upload-input") as HTMLInputElement | null;
-      if (input) {
-        input.value = "";
+      setSelectedFileName(null);
+      if (inputRef.current) {
+        inputRef.current.value = "";
       }
     } catch (error) {
       setMessage((error as ApiError).message);
@@ -51,25 +53,31 @@ export function UploadCard({
 
         <label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-[var(--border-strong)] bg-white/60 p-6 text-center transition hover:border-[var(--primary)] hover:bg-white/75">
           <span className="text-sm font-semibold">
-            {file ? file.name : "Click to choose a PDF"}
+            {loading
+              ? `Uploading ${selectedFileName ?? "your PDF"}...`
+              : selectedFileName
+                ? `${selectedFileName} selected`
+                : "Click to choose a PDF"}
           </span>
           <span className="mt-2 text-sm text-[var(--muted-foreground)]">
-            A local file is stored on the backend and prepared for analysis.
+            {loading
+              ? "Your file is being sent to the backend right away."
+              : "Choose a file and LearnPilot will start uploading it immediately."}
           </span>
           <input
+            ref={inputRef}
             id="document-upload-input"
             type="file"
             className="hidden"
             accept="application/pdf"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            disabled={loading}
+            onChange={handleFileChange}
           />
         </label>
 
-        {message ? <p className="text-sm text-[var(--muted-foreground)]">{message}</p> : null}
-
-        <Button onClick={handleUpload} loading={loading}>
-          Upload document
-        </Button>
+        {message ? (
+          <Alert tone={message.startsWith("Uploaded ") ? "success" : "danger"}>{message}</Alert>
+        ) : null}
       </div>
     </Card>
   );

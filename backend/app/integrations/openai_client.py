@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AuthenticationError, PermissionDeniedError
 
 from app.core.config import Settings
-from app.core.errors import ExternalServiceError
+from app.core.errors import BadRequestError, ExternalServiceError
 
 
 class OpenAIStructuredClient:
@@ -13,6 +13,30 @@ class OpenAIStructuredClient:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+
+    async def validate_api_key(self, *, api_key: str) -> None:
+        client = AsyncOpenAI(api_key=api_key, base_url=self.settings.openai_base_url)
+        try:
+            await client.models.list()
+        except (AuthenticationError, PermissionDeniedError) as exc:
+            raise BadRequestError(
+                "The provided OpenAI API key could not be verified. Please check the key and try again.",
+                details=str(exc),
+            ) from exc
+        except APIConnectionError as exc:
+            raise ExternalServiceError(
+                "LearnPilot could not reach the OpenAI API while verifying the key.",
+                details=str(exc),
+            ) from exc
+        except APIStatusError as exc:
+            raise ExternalServiceError(
+                "OpenAI rejected the verification request.",
+                details=str(exc),
+            ) from exc
+        except Exception as exc:  # pragma: no cover - external client errors vary
+            raise ExternalServiceError("OpenAI key verification failed.", details=str(exc)) from exc
+        finally:
+            await client.close()
 
     async def generate_json(self, *, api_key: str, system_prompt: str, user_prompt: str) -> str:
         client = AsyncOpenAI(api_key=api_key, base_url=self.settings.openai_base_url)
@@ -40,4 +64,3 @@ class OpenAIStructuredClient:
         except json.JSONDecodeError as exc:
             raise ExternalServiceError("OpenAI response was not valid JSON.", details=content) from exc
         return content
-

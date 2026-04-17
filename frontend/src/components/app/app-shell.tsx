@@ -31,9 +31,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </p>
               </div>
             </div>
-            <div className="rounded-3xl bg-[var(--surface-muted)] p-4">
-              <p className="text-sm font-semibold">{user?.full_name || user?.email}</p>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">{user?.email}</p>
+            <div className="min-w-0 rounded-3xl bg-[var(--surface-muted)] p-4">
+              <p className="break-words text-sm font-semibold">{user?.full_name || user?.email}</p>
+              <p className="mt-1 break-all text-sm text-[var(--muted-foreground)]">{user?.email}</p>
             </div>
           </div>
 
@@ -47,7 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className={cn(
                     "rounded-2xl px-4 py-3 text-sm font-medium transition",
                     active
-                      ? "bg-[var(--primary)] text-[var(--primary-contrast)]"
+                      ? "bg-[var(--primary)] text-white"
                       : "text-[var(--muted-foreground)] hover:bg-white/80 hover:text-[var(--foreground)]",
                   )}
                 >
@@ -58,9 +58,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="mt-auto space-y-3">
-            <div className="rounded-3xl border border-[var(--border)] bg-white/75 p-4 text-sm text-[var(--muted-foreground)]">
-              Start on the dashboard to upload a new PDF or revisit your latest analysis.
-            </div>
             <Button variant="ghost" block onClick={logout}>
               Sign out
             </Button>
@@ -71,7 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <header className="surface-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between lg:hidden">
             <div>
               <p className="text-lg font-semibold">LearnPilot</p>
-              <p className="text-sm text-[var(--muted-foreground)]">
+              <p className="break-words text-sm text-[var(--muted-foreground)]">
                 {user?.full_name || user?.email}
               </p>
             </div>
@@ -83,7 +80,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className={cn(
                     "rounded-full px-4 py-2 text-sm",
                     pathname === item.href
-                      ? "bg-[var(--primary)] text-[var(--primary-contrast)]"
+                      ? "bg-[var(--primary)] text-white"
                       : "bg-white/70 text-[var(--muted-foreground)]",
                   )}
                 >

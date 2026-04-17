@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.candidate_event import CandidateEvent
 from app.models.enums import AssistantAction, CandidateEventStatus
 from app.models.user_credential import UserCredential
+from app.integrations.openai_client import OpenAIStructuredClient
 from app.schemas.domain import GeneratedNote, IntentResult
 from app.services.calendar_service import CalendarService
 from app.services.intent_service import IntentService
@@ -127,9 +128,13 @@ async def test_upload_and_analyze_document_flow(
         await session.flush()
         return [event], '{"events":[{"title":"Assignment Deadline"}]}'
 
+    async def fake_validate_api_key(self, api_key: str) -> None:
+        return None
+
     monkeypatch.setattr(IntentService, "classify_intent", fake_classify_intent)
     monkeypatch.setattr(NoteService, "generate_note", fake_generate_note)
     monkeypatch.setattr(CalendarService, "extract_and_store_events", fake_extract_and_store_events)
+    monkeypatch.setattr(OpenAIStructuredClient, "validate_api_key", fake_validate_api_key)
 
     llm_response = await client.post(
         "/api/credentials/llm",

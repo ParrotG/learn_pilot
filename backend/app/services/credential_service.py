@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.core.errors import ExternalConfigurationError, UnauthorizedError
 from app.core.security import create_signed_state, decrypt_value, encrypt_value, verify_signed_state
 from app.integrations.google import build_google_flow, fetch_google_account_email
+from app.integrations.openai_client import OpenAIStructuredClient
 from app.models.user_credential import UserCredential
 from app.schemas.credentials import (
     CredentialStatusResponse,
@@ -39,6 +40,8 @@ class CredentialService:
         payload: LLMCredentialUpsertRequest,
         settings: Settings,
     ) -> CredentialStatusResponse:
+        llm_client = OpenAIStructuredClient(settings)
+        await llm_client.validate_api_key(api_key=payload.api_key)
         credential = await self.get_or_create(session, user_id)
         credential.llm_provider = payload.provider
         credential.llm_api_key_encrypted = encrypt_value(payload.api_key, settings)
