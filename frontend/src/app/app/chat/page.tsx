@@ -1,89 +1,51 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { startTransition, useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { ConversationList } from "@/components/chat/conversation-list";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Alert } from "@/components/ui/alert";
-import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingState } from "@/components/ui/loading-state";
-import { SectionHeading } from "@/components/ui/section-heading";
 import { conversationsApi } from "@/lib/api";
-import type { ApiError, Conversation } from "@/lib/types";
+import type { ApiError } from "@/lib/types";
 
 export default function ChatLandingPage() {
   const router = useRouter();
   const { token } = useAuth();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const startedRef = useRef(false);
   const [error, setError] = useState<ApiError | null>(null);
 
-  const loadConversations = useCallback(async () => {
-    if (!token) {
-      return;
-    }
-    const response = await conversationsApi.list(token);
-    startTransition(() => {
-      setConversations(response);
-      setError(null);
-      setLoading(false);
-    });
-  }, [token]);
-
   useEffect(() => {
-    if (!token) {
+    if (!token || startedRef.current) {
       return;
     }
-    loadConversations().catch((requestError: ApiError) => {
-      startTransition(() => {
+
+    startedRef.current = true;
+
+    conversationsApi
+      .list(token)
+      .then(async (conversations) => {
+        const emptyConversation = conversations.find(
+          (conversation) => conversation.title === "New chat" && !conversation.last_message_at,
+        );
+
+        if (emptyConversation) {
+          router.replace(`/app/chat/${emptyConversation.id}`);
+          return;
+        }
+
+        const created = await conversationsApi.create(token, {});
+        router.replace(`/app/chat/${created.id}`);
+      })
+      .catch((requestError: ApiError) => {
         setError(requestError);
-        setLoading(false);
       });
-    });
-  }, [loadConversations, token]);
-
-  async function handleCreateConversation() {
-    if (!token) {
-      return;
-    }
-    setCreating(true);
-    try {
-      const created = await conversationsApi.create(token, {});
-      router.push(`/app/chat/${created.id}`);
-    } catch (requestError) {
-      setError(requestError as ApiError);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  if (loading) {
-    return <LoadingState label="Loading chat workspace..." />;
-  }
+  }, [router, token]);
 
   return (
-    <div className="space-y-8">
-      <SectionHeading
-        eyebrow="Chat"
-        title="Conversation workspace"
-        description="Use LearnPilot as your main workspace for uploaded course documents and assistant replies."
-      />
-
+    <div className="space-y-6">
       {error ? <Alert tone="danger">{error.message}</Alert> : null}
-
-      <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <ConversationList
-          conversations={conversations}
-          onCreate={handleCreateConversation}
-          creating={creating}
-        />
-        <EmptyState
-          title="Choose a conversation or start a new one"
-          description="Upload a PDF inside a chat thread, ask LearnPilot to summarize it, and keep the whole interaction in one persistent workspace."
-        />
-      </div>
+      <LoadingState label="Opening a new chat..." />
     </div>
   );
 }

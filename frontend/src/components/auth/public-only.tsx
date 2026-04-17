@@ -13,7 +13,7 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (status === "authenticated") {
-      router.replace(searchParams.get("next") || "/app");
+      router.replace(searchParams.get("next") || "/app/chat");
     }
   }, [router, searchParams, status]);
 
@@ -22,7 +22,7 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
   }
 
   if (status === "authenticated") {
-    return <LoadingState label="Opening your dashboard..." />;
+    return <LoadingState label="Opening your chat workspace..." />;
   }
 
   return <>{children}</>;

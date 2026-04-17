@@ -44,7 +44,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       }
 
       setSuccess(isRegister ? "Account created successfully." : "Signed in successfully.");
-      router.replace(searchParams.get("next") || "/app");
+      router.replace(searchParams.get("next") || "/app/chat");
     } catch (requestError) {
       setError(requestError as ApiError);
     } finally {

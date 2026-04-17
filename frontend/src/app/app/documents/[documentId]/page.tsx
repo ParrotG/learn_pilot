@@ -145,7 +145,7 @@ export default function DocumentDetailPage() {
         title={document.filename}
         description="Review extracted text, generated notes, candidate events, and archive status for this uploaded file."
         actions={
-          <Link href="/app">
+          <Link href="/app/dashboard">
             <Button variant="secondary">Back to dashboard</Button>
           </Link>
         }

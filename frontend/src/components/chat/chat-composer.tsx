@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { TextareaField } from "@/components/ui/input";
 import type { ApiError } from "@/lib/types";
 
 export function ChatComposer({
@@ -55,32 +54,42 @@ export function ChatComposer({
   }
 
   return (
-    <div className="surface-card space-y-4 p-4">
-      <TextareaField
-        label="Message"
-        placeholder="Ask LearnPilot to summarize, explain, or help you work through the attached documents."
-        value={content}
-        onChange={(event) => setContent(event.target.value)}
-        className="min-h-32"
-      />
+    <div className="surface-card space-y-2 p-2">
+      <div className="relative">
+        <textarea
+          value={content}
+          onChange={(event) => setContent(event.target.value)}
+          placeholder="Ask anything"
+          className="min-h-28 w-full rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface-strong)] px-4 py-4 pr-28 text-sm outline-none transition placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--accent-soft)]"
+        />
+        <div className="absolute bottom-3 right-3 flex items-center gap-2">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/pdf"
+            className="hidden"
+            onChange={handleUpload}
+          />
+          <Button
+            variant="secondary"
+            onClick={() => inputRef.current?.click()}
+            loading={uploading}
+            className="min-h-8 rounded-full px-3 py-1 text-xs"
+          >
+            +
+          </Button>
+          <Button
+            onClick={handleSend}
+            loading={sending}
+            disabled={!content.trim()}
+            className="min-h-8 rounded-full px-4 py-1 text-xs"
+          >
+            Send
+          </Button>
+        </div>
+      </div>
 
       {message ? <p className="text-sm text-[var(--danger)]">{message}</p> : null}
-
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          ref={inputRef}
-          type="file"
-          accept="application/pdf"
-          className="hidden"
-          onChange={handleUpload}
-        />
-        <Button variant="secondary" onClick={() => inputRef.current?.click()} loading={uploading}>
-          Upload PDF
-        </Button>
-        <Button onClick={handleSend} loading={sending} disabled={!content.trim()}>
-          Send message
-        </Button>
-      </div>
     </div>
   );
 }

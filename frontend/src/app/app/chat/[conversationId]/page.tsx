@@ -1,18 +1,18 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { startTransition, useCallback, useEffect, useState } from "react";
 
 import { ChatComposer } from "@/components/chat/chat-composer";
-import { ConversationList } from "@/components/chat/conversation-list";
-import { ConversationSummaryPanel } from "@/components/chat/conversation-summary-panel";
 import { MessageTimeline } from "@/components/chat/message-timeline";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { LoadingState } from "@/components/ui/loading-state";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { conversationsApi, messagesApi, runsApi, workspaceApi } from "@/lib/api";
-import type { ApiError, AssistantRun, Conversation, ConversationDetail, ConversationDocument, Message } from "@/lib/types";
+import type { ApiError, AssistantRun, ConversationDetail, ConversationDocument, Message } from "@/lib/types";
 
 function isTerminal(status: AssistantRun["status"]) {
   return status === "completed" || status === "failed";
@@ -21,29 +21,25 @@ function isTerminal(status: AssistantRun["status"]) {
 export default function ConversationPage() {
   const params = useParams<{ conversationId: string }>();
   const conversationId = params.conversationId;
-  const router = useRouter();
   const { token } = useAuth();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversation, setConversation] = useState<ConversationDetail | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [documents, setDocuments] = useState<ConversationDocument[]>([]);
   const [activeRun, setActiveRun] = useState<AssistantRun | null>(null);
   const [loading, setLoading] = useState(true);
-  const [creatingConversation, setCreatingConversation] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
 
   const loadConversationData = useCallback(async () => {
     if (!token) {
       return;
     }
-    const [conversationList, detail, messageList, documentList] = await Promise.all([
-      conversationsApi.list(token),
+    const [detail, messageList, documentList] = await Promise.all([
       conversationsApi.detail(token, conversationId),
       messagesApi.list(token, conversationId),
       workspaceApi.listDocuments(token, conversationId),
     ]);
     startTransition(() => {
-      setConversations(conversationList);
       setConversation(detail);
       setMessages(messageList);
       setDocuments(documentList);
@@ -91,21 +87,6 @@ export default function ConversationPage() {
     return () => window.clearInterval(intervalId);
   }, [activeRun, loadConversationData, token]);
 
-  async function handleCreateConversation() {
-    if (!token) {
-      return;
-    }
-    setCreatingConversation(true);
-    try {
-      const created = await conversationsApi.create(token, {});
-      router.push(`/app/chat/${created.id}`);
-    } catch (requestError) {
-      setError(requestError as ApiError);
-    } finally {
-      setCreatingConversation(false);
-    }
-  }
-
   async function handleSendMessage(content: string) {
     if (!token) {
       throw { code: "unauthorized", message: "Sign in to send a message." } satisfies ApiError;
@@ -114,10 +95,6 @@ export default function ConversationPage() {
     startTransition(() => {
       setMessages((current) => [...current, response.message]);
       setActiveRun(response.assistant_run);
-    });
-    const refreshedConversations = await conversationsApi.list(token);
-    startTransition(() => {
-      setConversations(refreshedConversations);
     });
   }
 
@@ -134,32 +111,50 @@ export default function ConversationPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       <SectionHeading
         eyebrow="Chat"
         title={conversation?.title || "Conversation"}
-        description="Keep uploaded PDFs, assistant replies, and run status in one conversation-centric workflow."
+        actions={
+          <Button variant="secondary" onClick={() => setShowDocs((current) => !current)}>
+            Docs
+          </Button>
+        }
       />
 
       {error ? <Alert tone="danger">{error.message}</Alert> : null}
       {activeRun && !isTerminal(activeRun.status) ? (
         <Alert tone="info">LearnPilot is working on your latest request. Current run status: {activeRun.status}.</Alert>
       ) : null}
+      {showDocs ? (
+        <div className="flex justify-end">
+          <Card className="w-full max-w-sm space-y-4 p-4">
+            {documents.length === 0 ? (
+              <p className="text-sm text-[var(--muted-foreground)]">No documents attached yet.</p>
+            ) : (
+              <div className="grid gap-3">
+                {documents.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-[var(--border)] bg-white/60 px-4 py-3"
+                  >
+                    <p className="text-sm font-semibold">{item.document.filename}</p>
+                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">{item.document.processing_status}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)_320px]">
-        <ConversationList
-          conversations={conversations}
-          currentConversationId={conversationId}
-          onCreate={handleCreateConversation}
-          creating={creatingConversation}
-        />
-
-        <div className="space-y-6">
+      <div className="mx-auto flex min-h-[calc(100vh-12rem)] max-w-4xl flex-col gap-4">
+        <div className="flex-1">
           <MessageTimeline messages={messages} />
+        </div>
+        <div className="sticky bottom-0 z-10 pb-2 pt-4">
           <ChatComposer onSend={handleSendMessage} onUpload={handleUploadDocument} />
         </div>
-
-        <ConversationSummaryPanel documents={documents} run={activeRun} />
       </div>
     </div>
   );
