@@ -18,14 +18,15 @@ async function proxyRequest(
   context: { params: Promise<{ path: string[] }> },
 ) {
   const { path } = await context.params;
-  const backendBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const backendBaseUrl =
+    process.env.BACKEND_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL;
 
   if (!backendBaseUrl) {
     return Response.json(
       {
         code: "frontend_configuration_error",
         message:
-          "NEXT_PUBLIC_API_BASE_URL is not configured. Add it to frontend/.env.local before starting the app.",
+          "BACKEND_API_BASE_URL or NEXT_PUBLIC_API_BASE_URL is not configured. Add it to the frontend environment before starting the app.",
       },
       { status: 500 },
     );

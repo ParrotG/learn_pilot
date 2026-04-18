@@ -1,7 +1,5 @@
 FROM node:24-bookworm-slim
 
-ENV NODE_ENV=production
-
 WORKDIR /app/frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
@@ -11,6 +9,9 @@ COPY frontend /app/frontend
 
 RUN npm run build
 
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+
 EXPOSE 3000
 
-CMD ["npm", "run", "start", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+CMD ["npx", "next", "start", "--hostname", "0.0.0.0", "--port", "3000"]
