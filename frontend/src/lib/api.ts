@@ -13,7 +13,6 @@ import type {
   DriveArchiveStatus,
   ExportArtifact,
   Message,
-  Note,
   SessionNote,
   SessionNoteRevision,
   ToolCall,

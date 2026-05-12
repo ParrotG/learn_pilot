@@ -255,7 +255,7 @@ export default function ConversationPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-6">
         <div className="mx-auto flex min-h-[calc(100vh-12rem)] w-full max-w-4xl flex-col gap-4">
           <div className="flex-1">
             <MessageTimeline messages={messages} />
@@ -264,7 +264,7 @@ export default function ConversationPage() {
             <ChatComposer onSend={handleSendMessage} onUpload={handleUploadDocument} />
           </div>
         </div>
-        <div className="xl:sticky xl:top-6 xl:self-start">
+        <div className="mx-auto w-full max-w-4xl">
           <div className="space-y-4">
             <SessionNotePanel note={sessionNote} />
             <ArtifactList

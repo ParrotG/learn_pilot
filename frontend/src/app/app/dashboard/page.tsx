@@ -92,7 +92,7 @@ export default function DashboardPage() {
 
       <StatusCardGrid user={user} credentials={credentialStatus} documents={documents} />
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr_1fr_1fr]">
+      <div className="grid gap-6">
         <UploadCard onUpload={handleUpload} />
         <NoteListCard notes={notes.slice(0, 4)} />
         <RecentConversationsCard conversations={conversations.slice(0, 4)} />

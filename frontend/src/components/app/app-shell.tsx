@@ -5,7 +5,7 @@ import { startTransition, useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { conversationsApi } from "@/lib/api";
-import type { ApiError, Conversation } from "@/lib/types";
+import type { Conversation } from "@/lib/types";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,8 +64,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         setConversations((current) => [created, ...current]);
       });
       router.push(`/app/chat/${created.id}`);
-    } catch (_error) {
-      const _ignored = _error as ApiError;
+    } catch {
+      return;
     } finally {
       setCreating(false);
     }
@@ -84,8 +84,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (pathname === `/app/chat/${conversationId}`) {
         router.push("/app/chat");
       }
-    } catch (_error) {
-      const _ignored = _error as ApiError;
+    } catch {
+      return;
     } finally {
       setDeletingConversationId(null);
     }

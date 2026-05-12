@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 :root {
+  --font-heading: "Aptos Display", "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-body: "Aptos", "Segoe UI", "Helvetica Neue", sans-serif;
   --background: #f6f2e8;
   --surface: rgba(255, 252, 246, 0.88);
   --surface-strong: #fffdf8;
